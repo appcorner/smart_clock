@@ -1,0 +1,12 @@
+{
+  "_comment": "Bar chart — แท่งนอน เทียบอันดับระหว่างรายการ ป้ายค่าท้ายแท่งด้วย values:true",
+  "mode": "dashboard",
+  "widgets": [
+    { "type": "title", "text": "ยอดขายตามภาค", "color": "orange" },
+    { "type": "bar", "x": 5, "y": 40, "w": 230, "h": 150,
+      "values": true, "decimals": 0,
+      "color": "cyan", "threshold": 400, "color2": "orange",
+      "data": [520, 410, 260, 150, 90] },
+    { "type": "text", "text": "รวม 1,430", "y": 200, "size": 2, "color": "white" }
+  ]
+}

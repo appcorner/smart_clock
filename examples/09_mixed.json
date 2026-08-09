@@ -1,0 +1,21 @@
+{
+  "mode": "dashboard",
+  "widgets": [
+    { "type": "title", "text": "ภาพรวมระบบ", "color": "orange" },
+    { "type": "kpi", "label": "UPTIME %", "value": 99.8, "decimals": 1,
+      "x": 5, "y": 34, "w": 112, "h": 52, "size": 3, "color": "green" },
+    { "type": "kpi", "label": "ERRORS", "value": 12,
+      "x": 123, "y": 34, "w": 112, "h": 52, "size": 3, "color": "yellow",
+      "threshold": 10, "color2": "red" },
+    { "type": "column", "x": 5, "y": 94, "w": 145, "h": 76, "axis": false,
+      "color": "cyan",
+      "data": [12, 18, 15, 22, 27, 24, 31, 28, 35, 33] },
+    { "type": "donut", "x": 155, "y": 92, "w": 80, "h": 80, "hole": 50,
+      "data": [62, 24, 14] },
+    { "type": "hline", "x": 5, "y": 178, "w": 230, "color": "grey" },
+    { "type": "gauge", "x": 5, "y": 188, "w": 230, "h": 14,
+      "value": 61, "min": 0, "max": 100, "color": "green",
+      "threshold": 85, "color2": "red" },
+    { "type": "text", "text": "CPU 61%", "y": 208, "size": 2, "color": "white" }
+  ]
+}

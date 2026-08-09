@@ -1,0 +1,9 @@
+{
+  "mode": "dashboard",
+  "widgets": [
+    { "type": "title", "text": "ส่วนแบ่งตลาด", "color": "orange" },
+    { "type": "pie", "x": 55, "y": 42, "w": 140, "h": 140,
+      "data": [55, 22, 13, 10] },
+    { "type": "text", "text": "4 ราย", "y": 192, "size": 2, "color": "cyan" }
+  ]
+}

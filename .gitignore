@@ -1,0 +1,81 @@
+# ---- PlatformIO ----
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+
+# ---- Arduino CLI / IDE build cache ----
+*.ino.cpp
+build/cache/
+/tmp/
+*.tmp
+/.tmp_*
+.dash*
+.out*
+.err.txt
+payload_tmp.json 
+*/__pycache__/*.pyc
+*/__pycache__/*.pyo
+
+# ---- Build intermediates (ใหญ่และสร้างใหม่ได้ทุกครั้งที่ compile) ----
+*.elf
+*.map
+*.d
+*.o
+*.a
+*.su
+*.lst
+*.sym
+*.merged.bin
+*.bootloader.bin
+*.partitions.bin
+
+# ---- โฟลเดอร์ build ที่เครื่องมืออื่นอาจสร้างขึ้น ----
+build/
+
+# ---- ไบนารี ESP8266 ที่ compile ออกมา (ยังไม่เก็บเข้า repo) ----
+build_esp8266/
+
+# ---- Secrets / credentials ----
+.env
+.env.*
+secrets.h
+Secrets.h
+credentials.h
+arduino_secrets.h
+*.key
+*.pem
+
+# ---- IDE / Editor ----
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# ---- Antivirus / TLS inspection artifacts ----
+_norton_/
+
+# ---- OS ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+.old_git/
+
+# ---- ไฟล์เก่า/reference ที่ไม่ได้ใช้งานใน build จริง ----
+SDPro_V1.0.4_original.bin
+/data/
+original_index.html
+original_javascript.js
+original_photo.html
+original_style.css

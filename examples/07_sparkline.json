@@ -1,0 +1,14 @@
+{
+  "mode": "dashboard",
+  "widgets": [
+    { "type": "title", "text": "แนวโน้มย่อ", "color": "orange" },
+    { "type": "kpi", "label": "LATENCY ms", "value": 148,
+      "x": 5, "y": 38, "w": 230, "h": 60, "size": 5, "color": "cyan" },
+    { "type": "sparkline", "x": 5, "y": 104, "w": 230, "h": 40, "color": "cyan",
+      "data": [132, 140, 138, 151, 149, 160, 155, 147, 142, 150, 158, 148] },
+    { "type": "hline", "x": 5, "y": 152, "w": 230, "color": "grey" },
+    { "type": "sparkline", "x": 5, "y": 160, "w": 230, "h": 40,
+      "fill": true, "color": "green", "color2": "#062808",
+      "data": [8, 9, 11, 10, 14, 18, 17, 21, 24, 22, 27, 31] }
+  ]
+}

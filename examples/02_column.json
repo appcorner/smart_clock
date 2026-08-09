@@ -1,0 +1,11 @@
+{
+  "mode": "dashboard",
+  "widgets": [
+    { "type": "title", "text": "ยอดขาย 7 วัน", "color": "orange" },
+    { "type": "column", "x": 5, "y": 40, "w": 230, "h": 150,
+      "axis": true, "decimals": 0,
+      "color": "cyan", "threshold": 900, "color2": "orange",
+      "data": [420, 615, 580, 940, 1020, 760, 350] },
+    { "type": "text", "text": "รวม 4,685", "y": 200, "size": 2, "color": "white" }
+  ]
+}
