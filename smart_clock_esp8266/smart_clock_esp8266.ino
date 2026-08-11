@@ -14,7 +14,7 @@
 // (ตัด wrapper เฉพาะ SSD1306 ทิ้ง เอาแต่ core อัลกอริทึมที่ไม่ผูกจอ)
 #include "qrencode.h"
 
-#define FW_VERSION "3.5.0"
+#define FW_VERSION "3.5.3"
 
 // รหัสผ่านหน้าเว็บเริ่มต้น — ตัวเครื่องจะเตือนบนจอและบนหน้าเว็บจนกว่าจะเปลี่ยน
 #define DEFAULT_WEB_USER "admin"
@@ -684,13 +684,13 @@ void drawThaiString(int16_t x, int16_t y, const char* str, uint16_t color, uint1
                         else if ((nb & 0xF0) == 0xE0) { next_cp = ((nb & 0x0F) << 12) | (((uint8_t)next_ptr[1] & 0x3F) << 6) | ((uint8_t)next_ptr[2] & 0x3F); }
                     }
 
-                    // เลื่อน cell ลงเฉพาะเมื่อตัวถัดไป **ไม่ใช่** สระ ำ
+                    // เลื่อน glyph ลงเฉพาะเมื่อตัวถัดไป **ไม่ใช่** สระ ำ
                     if (next_cp != 0x0E33) {
                         // ใช้ int16_t แทน uint8_t กัน underflow ตอน i = 0
                         for (int16_t i = THAIFONT_HEIGHT - 1; i >= THAIFONT_TONES_HEIGHT; i--) {
-                            cell[i] = cell[i - THAIFONT_TONES_HEIGHT];
+                            glyph[i] = glyph[i - THAIFONT_TONES_HEIGHT];
                         }
-                        for (uint8_t i = 0; i < THAIFONT_TONES_HEIGHT; i++) cell[i] = 0;
+                        for (uint8_t i = 0; i < THAIFONT_TONES_HEIGHT; i++) glyph[i] = 0;
                     }
                 } else {
                     // ติดตามว่า cell นี้มีสระบนแล้วหรือยัง เพื่อไม่ให้เลื่อนซ้ำ
@@ -802,13 +802,13 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
                         else if ((nb & 0xF0) == 0xE0) { next_cp = ((nb & 0x0F) << 12) | (((uint8_t)next_ptr[1] & 0x3F) << 6) | ((uint8_t)next_ptr[2] & 0x3F); }
                     }
 
-                    // เลื่อน cell ลงเฉพาะเมื่อตัวถัดไป **ไม่ใช่** สระ ำ
+                    // เลื่อน glyph ลงเฉพาะเมื่อตัวถัดไป **ไม่ใช่** สระ ำ
                     if (next_cp != 0x0E33) {
                         // ใช้ int16_t แทน uint8_t กัน underflow ตอน i = 0
                         for (int16_t i = THAIFONT_HEIGHT - 1; i >= THAIFONT_TONES_HEIGHT; i--) {
-                            cell[i] = cell[i - THAIFONT_TONES_HEIGHT];
+                            glyph[i] = glyph[i - THAIFONT_TONES_HEIGHT];
                         }
-                        for (uint8_t i = 0; i < THAIFONT_TONES_HEIGHT; i++) cell[i] = 0;
+                        for (uint8_t i = 0; i < THAIFONT_TONES_HEIGHT; i++) glyph[i] = 0;
                     }
                 } else {
                     // ติดตามว่า cell นี้มีสระบนแล้วหรือยัง เพื่อไม่ให้เลื่อนซ้ำ
