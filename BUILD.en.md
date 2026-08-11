@@ -53,26 +53,46 @@ This file is already configured; no changes needed:
 - All libraries download automatically
 
 ### 3. Compile the firmware
+
+**Basic command:**
 ```bash
 pio run
 ```
 
+**Additional commands:**
+```bash
+# Clean before build (recommended if you've had cache issues)
+pio run -t clean
+pio run
+
+# Build with verbose output (see detailed logs)
+pio run -v
+```
+
 **Output files:**
 - `.pio/build/geekmagic/firmware.bin` (raw file)
-- `build_esp8266/SDP_v3.5.0.bin` (copied automatically by post-build script)
+- `build_esp8266/SDP_v<version>.bin` (copied automatically by post-build script)
+  - Version number read from `#define FW_VERSION` in the `.ino` file at line 17
 
 **Example successful output:**
 ```
 RAM:   [=====     ]  49.2% (used 40284 bytes from 81920 bytes)
-Flash: [=====     ]  48.4% (used 505551 bytes from 1044464 bytes)
+Flash: [=====     ]  48.5% (used 506191 bytes from 1044464 bytes)
 Building .pio/build/geekmagic/firmware.bin
-========================= [SUCCESS] Took 12.34 seconds =========================
+after_build([".pio\build\geekmagic\firmware.bin"], [".pio\build\geekmagic\firmware.elf"])
+[copy_firmware] -> D:\sandboxs\smart_clock\build_esp8266\SDP_v3.5.3.bin (498.4 KB)
+========================= [SUCCESS] Took 9.59 seconds =========================
 ```
 
 ### 4. Verify output file
 ```bash
-ls -lh build_esp8266/SDP_v3.5.0.bin
+ls -lh build_esp8266/SDP_v*.bin
 ```
+
+**Important notes:**
+- ⚠️ Always check `git status` before building to ensure the binary matches the intended source code
+- ⚠️ If you manually edit code, commit before building to maintain a verifiable snapshot
+- ⚠️ Recommended to clean build if switching sessions or if you've had problematic binaries
 
 ---
 

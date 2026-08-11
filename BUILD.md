@@ -53,26 +53,46 @@ cd smart_clock
 - ไลบรารีทั้งหมดดาวน์โหลดอัตโนมัติ
 
 ### 3. คอมไพล์ firmware
+
+**คำสั่งพื้นฐาน:**
 ```bash
 pio run
 ```
 
+**คำสั่งเสริม:**
+```bash
+# Clean ก่อน build (แนะนำถ้าเคยมีปัญหา cache)
+pio run -t clean
+pio run
+
+# Build พร้อม verbose output (ดู log ละเอียด)
+pio run -v
+```
+
 **ผลลัพธ์ที่ได้:**
 - ไฟล์ `.pio/build/geekmagic/firmware.bin` (ไฟล์ดิบ)
-- ไฟล์ `build_esp8266/SDP_v3.5.0.bin` (คัดลอกโดย post-build script อัตโนมัติ)
+- ไฟล์ `build_esp8266/SDP_v<version>.bin` (คัดลอกโดย post-build script อัตโนมัติ)
+  - เลขเวอร์ชันอ่านจาก `#define FW_VERSION` ในไฟล์ `.ino` บรรทัดที่ 17
 
 **ตัวอย่าง output ที่สำเร็จ:**
 ```
 RAM:   [=====     ]  49.2% (used 40284 bytes from 81920 bytes)
-Flash: [=====     ]  48.4% (used 505551 bytes from 1044464 bytes)
+Flash: [=====     ]  48.5% (used 506191 bytes from 1044464 bytes)
 Building .pio/build/geekmagic/firmware.bin
-========================= [SUCCESS] Took 12.34 seconds =========================
+after_build([".pio\build\geekmagic\firmware.bin"], [".pio\build\geekmagic\firmware.elf"])
+[copy_firmware] -> D:\sandboxs\smart_clock\build_esp8266\SDP_v3.5.3.bin (498.4 KB)
+========================= [SUCCESS] Took 9.59 seconds =========================
 ```
 
 ### 4. ตรวจสอบไฟล์ output
 ```bash
-ls -lh build_esp8266/SDP_v3.5.0.bin
+ls -lh build_esp8266/SDP_v*.bin
 ```
+
+**หมายเหตุสำคัญ:**
+- ⚠️ ตรวจสอบ `git status` ก่อน build ทุกครั้ง เพื่อให้แน่ใจว่า binary ตรงกับ source code ที่ต้องการ
+- ⚠️ ถ้าแก้โค้ดด้วยตัวเอง ควร commit ก่อน build เพื่อให้มี snapshot ที่ตรวจสอบได้
+- ⚠️ แนะนำให้ clean build ถ้าเปลี่ยน session หรือเคยมี binary ที่มีปัญหา
 
 ---
 
