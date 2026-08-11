@@ -103,7 +103,7 @@ curl --user "${USERNAME}:${PASSWORD}" -X POST "${BASE_URL}/api/draw" \
       },
       {
         "type": "text",
-        "text": "เส้นตำแหน่งตายตัว Y=100",
+        "text": "พิกัด Y=100",
         "x": 20, "y": 110,
         "size": 1,
         "color": "white"
