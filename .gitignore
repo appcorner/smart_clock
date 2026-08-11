@@ -47,6 +47,9 @@ arduino_secrets.h
 *.key
 *.pem
 
+# ---- Claude Code local settings ----
+.claude/settings.local.json
+
 # ---- IDE / Editor ----
 .vscode/
 !.vscode/extensions.json
