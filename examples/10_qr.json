@@ -1,7 +1,7 @@
 {
   "mode": "dashboard",
   "widgets": [
-    { "type": "title", "text": "สแกนดูสถานะ", "color": "orange" },
+    { "type": "title", "text": "PROMPTPAY", "color": "orange" },
     { "type": "qr",
       "promptpay_id": "0812345678",
       "promptpay_amount": 150.00,

@@ -69,4 +69,9 @@ if [ "$fail" -gt 0 ]; then
     exit 1
 fi
 echo "ยิงครบ ${#FILES[@]} ไฟล์ เครื่องรับทุกไฟล์"
-echo "frame สุดท้ายยังอยู่ใน RAM จนครบ TTL 10 นาที — /api/mode?to=clock เพื่อกลับหน้านาฬิกา"
+# echo "frame สุดท้ายยังอยู่ใน RAM จนครบ TTL 10 นาที — /api/mode?to=clock เพื่อกลับหน้านาฬิกา"
+
+sleep "$DWELL"
+echo "ยิง /api/mode?to=clock เพื่อกลับหน้านาฬิกา"
+echo
+curl "${AUTH[@]}" "http://$HOST/api/mode?to=clock"
