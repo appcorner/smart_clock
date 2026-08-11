@@ -151,6 +151,7 @@ enum WidgetType : uint8_t {
     W_GAUGE,     // แถบเกจแนวนอนค่าเดียว
     W_RECT,      // สี่เหลี่ยม ทึบหรือเส้นขอบ
     W_HLINE,     // เส้นแนวนอน ใช้เป็นเส้นอ้างอิง/เส้นคั่น
+    W_VLINE,     // เส้นแนวตั้ง ใช้เป็นเส้นอ้างอิง/เส้นคั่น
     W_QR         // QR code — เข้ารหัสจาก text ตรึง VERSION 7 / ECC-L (45x45 module)
 };
 
@@ -179,6 +180,10 @@ struct Widget {
     // ยาวเกิน DASH_TEXT_LEN(48) มาก ถ้าใช้ text[] ร่วมจะโดน strlcpy ตัดจนพัง checksum/CRC
     // จึงต้องแยกบัฟเฟอร์ของตัวเอง ไม่ปนกับ text ที่ widget อื่นใช้โชว์บนจอ
     char qrText[160] = "";
+    // Scale reference: อ้างอิงสเกลจาก widget อื่น แทนใช้พิกัดแบบ pixel ตายตัว
+    bool hasRef = false;        // true = ใช้ value + refType แทนพิกัด x/y ตายตัว
+    float refValue = 0.0f;      // ค่าข้อมูล (เช่น ราคา, index) ที่จะ map ผ่านสเกล
+    char refType[12] = "";      // ชนิด widget ที่จะอ้างอิง ("candles", "column", "line", ...)
 };
 
 struct Dashboard {
@@ -1121,6 +1126,13 @@ void drawCandles(const Widget &g) {
         if (bh < 1) bh = 1;
         tft.fillRect(bx, top, body, bh, col);
     }
+
+    // วาดเส้นราคาล่าสุด (close ของแท่งสุดท้าย)
+    if (g.count > 0) {
+        float lastClose = wval(g, (g.count - 1) * 4 + 3);
+        int16_t yLast = toY(lastClose);
+        tft.drawFastHLine(g.x, yLast, plotW, ST77XX_YELLOW);
+    }
 }
 
 // Column chart — แท่งตั้งเรียงซ้ายไปขวา ระบายจากเส้นฐาน (ค่า 0 ถ้าอยู่ในช่วง)
@@ -1537,6 +1549,29 @@ void drawQr(const Widget &g) {
     }
 }
 
+// ค้นหา widget ตามชนิด แล้วอ่านสเกลและขอบเขต สำหรับ primitive ที่อ้างอิงสเกล
+// คืน false ถ้าไม่เจอ (ตัวแรกที่เจอ — ถ้ามีหลายตัวเลือกตัวแรก)
+bool findChartScale(const char* refType, int16_t &rx, int16_t &ry, int16_t &rw, int16_t &rh, float &lo, float &hi) {
+    for (uint8_t i = 0; i < dash.widgetCount; i++) {
+        const Widget &g = dash.widgets[i];
+        bool match = false;
+        uint8_t stride = 1;
+
+        if (!strcmp(refType, "candles") && g.type == W_CANDLES) { match = true; stride = 4; }
+        else if (!strcmp(refType, "column") && g.type == W_COLUMN) { match = true; stride = 1; }
+        else if (!strcmp(refType, "bar") && g.type == W_HBAR) { match = true; stride = 1; }
+        else if (!strcmp(refType, "line") && g.type == W_LINE) { match = true; stride = 1; }
+        else if (!strcmp(refType, "donut") && g.type == W_DONUT) { match = true; stride = 1; }
+
+        if (match) {
+            rx = g.x; ry = g.y; rw = g.w; rh = g.h;
+            widgetRange(g, lo, hi, stride);
+            return true;
+        }
+    }
+    return false;
+}
+
 void renderDashboard() {
     // ล้างทั้งจอเฉพาะตอนวาด frame ใหม่ ไม่ได้ล้างทุกรอบ loop
     tft.fillScreen(ST77XX_BLACK);
@@ -1549,15 +1584,12 @@ void renderDashboard() {
     }
     setBacklightPct(hasQr ? QR_DIM_BRIGHTNESS_PCT : sysConfig.brightness);
 
+    // Pass 1: วาดกราฟ — สร้างสเกลให้ primitive อ้างอิงได้
     for (uint8_t i = 0; i < dash.widgetCount; i++) {
         yield();
         const Widget &g = dash.widgets[i];
 
-        // กราฟทุกชนิดต้องมีจุดอย่างน้อยหนึ่งจุด ยกเว้น text/rect/hline ที่ไม่ใช้ pool
         switch (g.type) {
-            case W_TEXT:
-                if (g.text[0]) drawThaiStringScaled(g.x, g.y, g.text, g.color, g.scale);
-                break;
             case W_CANDLES: if (g.count) drawCandles(g);    break;
             case W_COLUMN:  if (g.count) drawColumns(g);    break;
             case W_HBAR:    if (g.count) drawHBars(g);      break;
@@ -1566,12 +1598,48 @@ void renderDashboard() {
             case W_KPI:     drawKpi(g);                     break;
             case W_GAUGE:   drawGauge(g);                   break;
             case W_QR:      if (g.qrText[0]) drawQr(g);      break;
+            default: break;
+        }
+    }
+
+    // Pass 2: วาด primitive และข้อความ — อ้างอิงสเกลจาก pass 1 ได้
+    for (uint8_t i = 0; i < dash.widgetCount; i++) {
+        yield();
+        const Widget &g = dash.widgets[i];
+
+        switch (g.type) {
+            case W_TEXT:
+                if (g.text[0]) drawThaiStringScaled(g.x, g.y, g.text, g.color, g.scale);
+                break;
             case W_RECT:
                 if (g.filled) tft.fillRect(g.x, g.y, g.w, g.h, g.color);
                 else          tft.drawRect(g.x, g.y, g.w, g.h, g.color);
                 break;
             case W_HLINE:
-                tft.drawFastHLine(g.x, g.y, g.w, g.color);
+                if (g.hasRef) {
+                    int16_t rx, ry, rw, rh;
+                    float lo, hi;
+                    if (findChartScale(g.refType, rx, ry, rw, rh, lo, hi)) {
+                        float span = hi - lo;
+                        if (span < 0.0001f) span = 0.0001f;
+                        float frac = (g.refValue - lo) / span;
+                        if (frac < 0.0f) frac = 0.0f;
+                        if (frac > 1.0f) frac = 1.0f;
+                        int16_t yMapped = ry + rh - 1 - (int16_t)(frac * (rh - 1));
+                        tft.drawFastHLine(rx, yMapped, rw, g.color);
+                    }
+                    // ถ้าหาไม่เจอ ข้ามไป (ไม่วาดอะไร)
+                } else {
+                    tft.drawFastHLine(g.x, g.y, g.w, g.color);
+                }
+                break;
+            case W_VLINE:
+                if (g.hasRef) {
+                    // TODO: map value เป็น X coordinate สำหรับกราฟแนวนอน
+                    // ตอนนี้ยังไม่ implement — ข้ามไป
+                } else {
+                    tft.drawFastVLine(g.x, g.y, g.h, g.color);
+                }
                 break;
             default: break;
         }
@@ -2136,14 +2204,27 @@ void handleApiDraw() {
             }
         }
         // ---- primitive วางเลย์เอาต์ ----
-        else if (!strcmp(type, "rect") || !strcmp(type, "hline")) {
+        else if (!strcmp(type, "rect") || !strcmp(type, "hline") || !strcmp(type, "vline")) {
             g.x = wgt["x"] | 0;
             g.y = wgt["y"] | 0;
             g.w = wgt["w"] | 240;
             g.h = wgt["h"] | 1;
             g.color = parseColor(wgt["color"] | "", DASH_GRID_COLOR);
             g.filled = wgt["fill"] | true;
-            g.type = !strcmp(type, "rect") ? W_RECT : W_HLINE;
+
+            if (!strcmp(type, "rect")) g.type = W_RECT;
+            else if (!strcmp(type, "hline")) g.type = W_HLINE;
+            else if (!strcmp(type, "vline")) g.type = W_VLINE;
+
+            // scale reference: อ้างอิงสเกลจากกราฟอื่น
+            if (wgt.containsKey("ref")) {
+                const char* refStr = wgt["ref"] | "";
+                if (*refStr) {
+                    g.hasRef = true;
+                    g.refValue = wgt["value"] | 0.0f;
+                    strlcpy(g.refType, refStr, sizeof(g.refType));
+                }
+            }
         }
         else {
             continue; // ชนิดที่ไม่รู้จัก ข้ามไปเงียบๆ ให้ widget อื่นใน frame ยังวาดได้
