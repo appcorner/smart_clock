@@ -594,6 +594,7 @@ bool loadGlyph(uint32_t cp, uint8_t rows[THAIFONT_HEIGHT]) {
 
 bool isThaiCombiningMark(uint32_t cp) {
     if (cp == 0x0E31) return true;                        // ั
+    if (cp == 0x0E33) return true;                        // ำ
     if (cp >= 0x0E34 && cp <= 0x0E3A) return true;        // ิ ี ึ ื ุ ู
     if (cp >= 0x0E47 && cp <= 0x0E4E) return true;        // ็ ่ ้ ๊ ๋ ์
     return false;
@@ -613,6 +614,7 @@ void drawThaiString(int16_t x, int16_t y, const char* str, uint16_t color, uint1
     uint8_t cell[THAIFONT_HEIGHT];
     uint8_t glyph[THAIFONT_HEIGHT];
     bool haveCell = false;
+    bool haveUpperVowel = false;
     int16_t curX = x;
 
     memset(cell, 0, THAIFONT_HEIGHT);
@@ -624,6 +626,7 @@ void drawThaiString(int16_t x, int16_t y, const char* str, uint16_t color, uint1
         curX += 8;
         memset(cell, 0, THAIFONT_HEIGHT);
         haveCell = false;
+        haveUpperVowel = false;
     };
 
     while (*ptr) {
@@ -640,8 +643,59 @@ void drawThaiString(int16_t x, int16_t y, const char* str, uint16_t color, uint1
         if (cp == '\n') { flushCell(); curX = x; y += THAIFONT_HEIGHT; continue; }
 
         if (isThaiCombiningMark(cp)) {
-            // Merge สระ ลงบน Cell ปัจจุบัน (ไม่เลื่อน cursor)
+            // สระ ำ (U+0E33) ประกอบด้วย ํ (U+0E4D) + า (U+0E32)
+            // วาด ํ ทับ cell เดิม (combining mark) แล้ววาด า cell ใหม่ (vowel)
+            if (cp == 0x0E33) {
+                // 1. วาด ํ (nikhahit) ทับ cell ปัจจุบัน
+                if (haveCell && loadGlyph(0x0E4D, glyph)) {
+                    //haveUpperVowel = true;  // ํ เป็นสระบน ห้ามเลื่อนวรรณยุกต์
+                    for (uint8_t i = 0; i < THAIFONT_HEIGHT; i++) cell[i] |= glyph[i];
+                }
+
+                // 2. Flush cell เพื่อเริ่ม cell ใหม่
+                flushCell();
+                if (curX + 8 > 240) { curX = x; y += THAIFONT_HEIGHT; }
+
+                // 3. วาด า (sara aa) เป็น cell ใหม่
+                if (loadGlyph(0x0E32, glyph)) {
+                    memcpy(cell, glyph, THAIFONT_HEIGHT);
+                    haveCell = true;
+                }
+                continue;  // เสร็จแล้ว ไปตัวถัดไป
+            }
+
+            // Merge สระ/วรรณยุกต์อื่นๆ ลงบน Cell ปัจจุบัน (ไม่เลื่อน cursor)
             if (haveCell && loadGlyph(cp, glyph)) {
+                if (!haveUpperVowel && cp >= 0x0E48 && cp <= 0x0E4C) {
+                    // ถ้า cell ปัจจุบันไม่มีสระบน และ เจอวรรณยุกต์ ต้องเลื่อน cell ลง THAIFONT_TONES_HEIGHT บรรทัดก่อนรวม
+                    // เพื่อให้วรรณยุกต์อยู่บนสุดของ cell ไม่ทับพยัญชนะ
+                    //
+                    // **ยกเว้น:** ถ้าตัวถัดไปเป็นสระ ำ (U+0E33) ไม่ต้องเลื่อน
+                    // เพราะ ำ จะแยกเป็น ํ (U+0E4D) + า และ ํ จะมาทับบนวรรณยุกต์พอดี
+                    // ตัวอย่าง: "น้ำ" = น + ้ + ำ → น + ้ + ํ + า (ํ ทับบน ้)
+
+                    // Peek ดูตัวถัดไป
+                    uint32_t next_cp = 0;
+                    const char* next_ptr = ptr;
+                    if (*next_ptr) {
+                        uint8_t nb = (uint8_t)*next_ptr;
+                        if (nb < 0x80) { next_cp = nb; }
+                        else if ((nb & 0xE0) == 0xC0) { next_cp = ((nb & 0x1F) << 6) | ((uint8_t)next_ptr[1] & 0x3F); }
+                        else if ((nb & 0xF0) == 0xE0) { next_cp = ((nb & 0x0F) << 12) | (((uint8_t)next_ptr[1] & 0x3F) << 6) | ((uint8_t)next_ptr[2] & 0x3F); }
+                    }
+
+                    // เลื่อน cell ลงเฉพาะเมื่อตัวถัดไป **ไม่ใช่** สระ ำ
+                    if (next_cp != 0x0E33) {
+                        // ใช้ int16_t แทน uint8_t กัน underflow ตอน i = 0
+                        for (int16_t i = THAIFONT_HEIGHT - 1; i >= THAIFONT_TONES_HEIGHT; i--) {
+                            cell[i] = cell[i - THAIFONT_TONES_HEIGHT];
+                        }
+                        for (uint8_t i = 0; i < THAIFONT_TONES_HEIGHT; i++) cell[i] = 0;
+                    }
+                } else {
+                    // ติดตามว่า cell นี้มีสระบนแล้วหรือยัง เพื่อไม่ให้เลื่อนซ้ำ
+                    haveUpperVowel = (cp >= 0x0E34 && cp <= 0x0E37);
+                }
                 for (uint8_t i = 0; i < THAIFONT_HEIGHT; i++) cell[i] |= glyph[i];
             }
             continue;
@@ -665,6 +719,7 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
     uint8_t cell[THAIFONT_HEIGHT];
     uint8_t glyph[THAIFONT_HEIGHT];
     bool haveCell = false;
+    bool haveUpperVowel = false;
     int16_t curX = x;
 
     memset(cell, 0, THAIFONT_HEIGHT);
@@ -689,6 +744,7 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
         curX += 8 * scale;
         memset(cell, 0, THAIFONT_HEIGHT);
         haveCell = false;
+        haveUpperVowel = false;
     };
 
     while (*ptr) {
@@ -705,7 +761,59 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
         if (cp == '\n') { flushCellScaled(); curX = x; y += THAIFONT_HEIGHT * scale; continue; }
 
         if (isThaiCombiningMark(cp)) {
+            // สระ ำ (U+0E33) ประกอบด้วย ํ (U+0E4D) + า (U+0E32)
+            // วาด ํ ทับ cell เดิม (combining mark) แล้ววาด า cell ใหม่ (vowel)
+            if (cp == 0x0E33) {
+                // 1. วาด ํ (nikhahit) ทับ cell ปัจจุบัน
+                if (haveCell && loadGlyph(0x0E4D, glyph)) {
+                    //haveUpperVowel = true;  // ํ เป็นสระบน ห้ามเลื่อนวรรณยุกต์
+                    for (uint8_t i = 0; i < THAIFONT_HEIGHT; i++) cell[i] |= glyph[i];
+                }
+
+                // 2. Flush cell เพื่อเริ่ม cell ใหม่
+                flushCellScaled();
+                if (curX + 8 * scale > 240) { curX = x; y += THAIFONT_HEIGHT * scale; }
+
+                // 3. วาด า (sara aa) เป็น cell ใหม่
+                if (loadGlyph(0x0E32, glyph)) {
+                    memcpy(cell, glyph, THAIFONT_HEIGHT);
+                    haveCell = true;
+                }
+                continue;  // เสร็จแล้ว ไปตัวถัดไป
+            }
+
+            // Merge สระ/วรรณยุกต์อื่นๆ ลงบน Cell ปัจจุบัน (ไม่เลื่อน cursor)
             if (haveCell && loadGlyph(cp, glyph)) {
+                if (!haveUpperVowel && cp >= 0x0E48 && cp <= 0x0E4C) {
+                    // ถ้า cell ปัจจุบันไม่มีสระบน และ เจอวรรณยุกต์ ต้องเลื่อน cell ลง THAIFONT_TONES_HEIGHT บรรทัดก่อนรวม
+                    // เพื่อให้วรรณยุกต์อยู่บนสุดของ cell ไม่ทับพยัญชนะ
+                    //
+                    // **ยกเว้น:** ถ้าตัวถัดไปเป็นสระ ำ (U+0E33) ไม่ต้องเลื่อน
+                    // เพราะ ำ จะแยกเป็น ํ (U+0E4D) + า และ ํ จะมาทับบนวรรณยุกต์พอดี
+                    // ตัวอย่าง: "น้ำ" = น + ้ + ำ → น + ้ + ํ + า (ํ ทับบน ้)
+
+                    // Peek ดูตัวถัดไป
+                    uint32_t next_cp = 0;
+                    const char* next_ptr = ptr;
+                    if (*next_ptr) {
+                        uint8_t nb = (uint8_t)*next_ptr;
+                        if (nb < 0x80) { next_cp = nb; }
+                        else if ((nb & 0xE0) == 0xC0) { next_cp = ((nb & 0x1F) << 6) | ((uint8_t)next_ptr[1] & 0x3F); }
+                        else if ((nb & 0xF0) == 0xE0) { next_cp = ((nb & 0x0F) << 12) | (((uint8_t)next_ptr[1] & 0x3F) << 6) | ((uint8_t)next_ptr[2] & 0x3F); }
+                    }
+
+                    // เลื่อน cell ลงเฉพาะเมื่อตัวถัดไป **ไม่ใช่** สระ ำ
+                    if (next_cp != 0x0E33) {
+                        // ใช้ int16_t แทน uint8_t กัน underflow ตอน i = 0
+                        for (int16_t i = THAIFONT_HEIGHT - 1; i >= THAIFONT_TONES_HEIGHT; i--) {
+                            cell[i] = cell[i - THAIFONT_TONES_HEIGHT];
+                        }
+                        for (uint8_t i = 0; i < THAIFONT_TONES_HEIGHT; i++) cell[i] = 0;
+                    }
+                } else {
+                    // ติดตามว่า cell นี้มีสระบนแล้วหรือยัง เพื่อไม่ให้เลื่อนซ้ำ
+                    haveUpperVowel = (cp >= 0x0E34 && cp <= 0x0E37);
+                }
                 for (uint8_t i = 0; i < THAIFONT_HEIGHT; i++) cell[i] |= glyph[i];
             }
             continue;
