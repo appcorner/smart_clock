@@ -50,10 +50,12 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 
 ### Text & Titles
 - `title` — Header at top (default y=6, size=2)
-- `text` — Plain text anywhere (max 48 chars)
+- `text` — Plain text anywhere (max 96 chars)
 
 ### Metrics
-- `kpi` — Large number card with label (supports threshold coloring)
+- `kpi` — Large number card with optional label on top (supports threshold coloring)
+  - `text` (96 chars) — Small label at top (grey)
+  - `label` (48 chars) — Large value display (main color)
 - `gauge` — Horizontal progress bar (with threshold)
 
 ### Charts
@@ -78,7 +80,7 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
   "mode": "dashboard",
   "widgets": [
     { "type": "title", "text": "Dashboard Title", "color": "orange" },
-    { "type": "kpi", "label": "METRIC", "value": 123.45, "decimals": 2,
+    { "type": "kpi", "text": "METRIC", "label": "123.45",
       "x": 5, "y": 40, "w": 230, "h": 60, "size": 3, "color": "cyan" },
     { "type": "line", "data": [10, 20, 15, 25, 30],
       "x": 5, "y": 110, "w": 230, "h": 100, "color": "green", "fill": true }
@@ -91,8 +93,8 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 - **Position & Size**: `x`, `y`, `w`, `h` (pixels, screen is 240×240)
 - **Colors**: Named colors (`red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `orange`, `purple`, `pink`, `white`, `black`, `grey`) or hex (`#RRGGBB`, `#RGB565`)
 - **Styling**: `color` (main), `color2` (secondary/threshold), `axis` (draw border), `fill` (fill area)
-- **Data**: `value` (single number), `data` (array), `text` (string)
-- **Formatting**: `decimals` (0-4), `size` (text scale 1-6), `label` (up to 16 chars)
+- **Data**: `value` (single number), `data` (array), `text` (string up to 96 chars), `label` (string up to 48 chars for KPI value)
+- **Formatting**: `decimals` (0-4), `size` (text scale 1-6)
 - **Thresholds**: `threshold` (value), `min`, `max` (scale bounds)
 
 ## Layout Guidelines for 240×240px Screen
@@ -116,8 +118,8 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 
 ### KPI Grid (2 columns)
 ```json
-{ "type": "kpi", "label": "LEFT", "value": 99, "x": 5, "y": 40, "w": 112, "h": 60 },
-{ "type": "kpi", "label": "RIGHT", "value": 42, "x": 123, "y": 40, "w": 112, "h": 60 }
+{ "type": "kpi", "text": "LEFT", "value": 99, "x": 5, "y": 40, "w": 112, "h": 60 },
+{ "type": "kpi", "text": "RIGHT", "value": 42, "x": 123, "y": 40, "w": 112, "h": 60 }
 ```
 
 ### Chart + Summary
@@ -130,15 +132,15 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 
 ### Sparkline + KPI
 ```json
-{ "type": "kpi", "label": "LATENCY ms", "value": 148, "x": 5, "y": 38, "w": 230, "h": 60, "size": 5 },
+{ "type": "kpi", "text": "LATENCY ms", "value": 148, "x": 5, "y": 38, "w": 230, "h": 60, "size": 5 },
 { "type": "sparkline", "data": [132, 140, 138, 151, 149, 160], "x": 5, "y": 104, "w": 230, "h": 40, "color": "cyan" }
 ```
 
 ### Status Dashboard
 ```json
 { "type": "title", "text": "System Status", "color": "orange" },
-{ "type": "kpi", "label": "UPTIME %", "value": 99.8, "x": 5, "y": 34, "w": 112, "h": 52 },
-{ "type": "kpi", "label": "ERRORS", "value": 12, "x": 123, "y": 34, "w": 112, "h": 52,
+{ "type": "kpi", "text": "UPTIME %", "value": 99.8, "x": 5, "y": 34, "w": 112, "h": 52 },
+{ "type": "kpi", "text": "ERRORS", "value": 12, "x": 123, "y": 34, "w": 112, "h": 52,
   "threshold": 10, "color2": "red" },
 { "type": "gauge", "value": 61, "min": 0, "max": 100, "x": 5, "y": 188, "w": 230, "h": 14,
   "threshold": 85, "color2": "red" }
@@ -205,7 +207,7 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 - **Max widgets**: 16 per frame
 - **Max data points**: 255 per chart (shared pool of 1024 total)
 - **Max body size**: 8192 bytes JSON
-- **Text limits**: 48 chars (text/label), 160 chars (QR)
+- **Text limits**: 96 chars (text field), 48 chars (label field for KPI value), 160 chars (QR)
 - **Screen resolution**: 240×240 pixels
 - **Color depth**: RGB565 (16-bit)
 
@@ -224,12 +226,12 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
   "mode": "dashboard",
   "widgets": [
     { "type": "title", "text": "AI Usage Today", "color": "orange" },
-    { "type": "kpi", "label": "TOKENS", "text": "1.24M",
+    { "type": "kpi", "text": "TOKENS", "label": "1.24M",
       "x": 5, "y": 40, "w": 110, "h": 62, "size": 3, "color": "cyan", "axis": true },
-    { "type": "kpi", "label": "COST USD", "value": 18.42, "decimals": 2,
+    { "type": "kpi", "text": "COST USD", "value": 18.42, "decimals": 2,
       "x": 125, "y": 40, "w": 110, "h": 62, "size": 2, "color": "yellow",
       "threshold": 15, "color2": "red", "axis": true },
-    { "type": "kpi", "label": "REQUESTS", "value": 1284,
+    { "type": "kpi", "text": "REQUESTS", "value": 1284,
       "x": 5, "y": 112, "w": 230, "h": 70, "size": 5, "color": "green" },
     { "type": "gauge", "value": 72, "min": 0, "max": 100,
       "x": 5, "y": 194, "w": 230, "h": 16, "color": "green",
