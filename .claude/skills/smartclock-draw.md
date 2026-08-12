@@ -50,12 +50,12 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 
 ### Text & Titles
 - `title` — Header at top (default y=6, size=2)
-- `text` — Plain text anywhere (max 96 chars)
+- `text` — Plain text anywhere (max 48 chars, default y=190)
 
 ### Metrics
-- `kpi` — Large number card with optional label on top (supports threshold coloring)
-  - `text` (96 chars) — Small label at top (grey)
-  - `label` (48 chars) — Large value display (main color)
+- `kpi` — Large number card with label on top (supports threshold coloring)
+  - `text` (16 chars max) — Small header at top (grey, size 1)
+  - `label` (48 chars max) — Large value display (main color, size 1-6)
 - `gauge` — Horizontal progress bar (with threshold)
 
 ### Charts
@@ -65,9 +65,16 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 - `sparkline` — Minimal line (no axis by default)
 - `candles` — Candlestick chart (OHLC data)
 - `donut` / `pie` — Circular proportion chart
+  - `label` — Center text inside donut hole (only displayed if hole ≥ 14px radius)
+  - `hole` (int, optional): Center hole percentage 0-95 (donut default: 55, pie default: 0)
 
 ### Special
 - `qr` — QR code (text or PromptPay payment)
+  - Stored at **dashboard level**, not in widget array
+  - Only **1 QR per frame** (last one in array wins)
+  - Does **not count** toward `DASH_MAX_WIDGETS`
+  - Always drawn **last** (on top of all other widgets)
+  - Backlight **auto-dims** when QR is present (easier camera scanning)
 
 ### Layout
 - `rect` — Filled/outlined rectangle
@@ -92,10 +99,28 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 
 - **Position & Size**: `x`, `y`, `w`, `h` (pixels, screen is 240×240)
 - **Colors**: Named colors (`red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `orange`, `purple`, `pink`, `white`, `black`, `grey`) or hex (`#RRGGBB`, `#RGB565`)
-- **Styling**: `color` (main), `color2` (secondary/threshold), `axis` (draw border), `fill` (fill area)
-- **Data**: `value` (single number), `data` (array), `text` (string up to 96 chars), `label` (string up to 48 chars for KPI value)
-- **Formatting**: `decimals` (0-4), `size` (text scale 1-6)
+- **Styling**: `color` (main), `color2` (secondary — meaning varies by widget type), `axis` (draw border/axes), `fill` (fill area)
+- **Data**: `value` (single number), `data` (array), `text` (string up to 16 chars, KPI header), `label` (string up to 48 chars, KPI value or donut center text)
+- **Formatting**: `decimals` (0-4), `size` (text scale: 1-3 for text/title, 1-6 for kpi)
 - **Thresholds**: `threshold` (value), `min`, `max` (scale bounds)
+
+### `axis` default per widget type
+
+| Widget | `axis` default |
+|--------|----------------|
+| `line` | `true` |
+| `sparkline` | `false` |
+| `bar`, `column`, `candles`, `gauge`, `kpi` | varies by widget |
+
+### `color2` meaning per widget type
+
+| Widget | `color2` meaning |
+|--------|-----------------|
+| `bar`, `column`, `kpi`, `gauge` | Color when value ≥ threshold |
+| `line`, `sparkline` | Shadow/fill color under the line (default `"#0208"` = dark gray) |
+| `candles` | Bearish candle color (close < open) |
+| `qr` | **Module / dot color** (default `"white"`) |
+| `qr` — `color` | **Background / quiet zone** (default `"black"`) |
 
 ## Layout Guidelines for 240×240px Screen
 
@@ -150,8 +175,11 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 ```json
 { "type": "title", "text": "PROMPTPAY", "color": "orange" },
 { "type": "qr", "promptpay_id": "0812345678", "promptpay_amount": 150.00,
-  "x": 20, "y": 30, "w": 200, "h": 200 }
+  "x": 5, "y": 5, "w": 200, "h": 200,
+  "color": "white", "color2": "black" }
 ```
+
+**Note**: QR `color` = background/quiet zone, `color2` = module/dots. For light-on-dark QR (easier scanning), use `color: "white", color2: "black"`.
 
 ## Implementation Steps
 
@@ -207,7 +235,7 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 - **Max widgets**: 16 per frame
 - **Max data points**: 255 per chart (shared pool of 1024 total)
 - **Max body size**: 8192 bytes JSON
-- **Text limits**: 96 chars (text field), 48 chars (label field for KPI value), 160 chars (QR)
+- **Text limits**: 96 chars (text field), 48 chars (label field for KPI value or donut center), 160 chars (QR)
 - **Screen resolution**: 240×240 pixels
 - **Color depth**: RGB565 (16-bit)
 
@@ -282,6 +310,6 @@ The skill reads configuration from `.claude/settings.local.json` (preferred) or 
 
 ## Reference
 
-Full API specification: `docs/API_DRAW_SPEC.md`
+Full API specification: `docs/API_DRAW_SPEC.en.md`
 Example payloads: `examples/*.json`
 Firmware source: `smart_clock_esp8266/smart_clock_esp8266.ino` (see `handleApiDraw()` function)
