@@ -14,7 +14,7 @@
 // (ตัด wrapper เฉพาะ SSD1306 ทิ้ง เอาแต่ core อัลกอริทึมที่ไม่ผูกจอ)
 #include "qrencode.h"
 
-#define FW_VERSION "3.5.3"
+#define FW_VERSION "3.5.4"
 
 // รหัสผ่านหน้าเว็บเริ่มต้น — ตัวเครื่องจะเตือนบนจอและบนหน้าเว็บจนกว่าจะเปลี่ยน
 #define DEFAULT_WEB_USER "admin"
@@ -45,7 +45,8 @@
 // 48 ไบต์ ไม่ใช่ 32 เพราะไทยกินตัวละ 3 ไบต์ใน UTF-8 — 32 ไบต์ได้แค่ 10 ตัวอักษร
 // ซึ่งสั้นกว่าที่จอรับได้จริง (scale 2 วาดได้ 15 cell ต่อบรรทัดบนจอ 240px)
 // และ strlcpy ที่ตัดกลาง codepoint จะทำให้ไบต์ท้ายกลายเป็นขยะบนจอ
-#define DASH_TEXT_LEN     48
+#define DASH_TEXT_LEN     96  // ป้ายกำกับ KPI บน / รองรับข้อความยาว
+#define DASH_LABEL_LEN    48  // ค่าหลัก KPI / ข้อความกลาง Donut
 // คลังตัวเลขที่ทุก widget แชร์กัน — candles กินจุดละ 4 ค่า ที่เหลือกินจุดละ 1 ค่า
 // 200 ช่อง = candles เต็ม 40 แท่ง (160) แล้วยังเหลือให้กราฟเส้นอีก 40 จุด
 #define DASH_POOL_SIZE    200
@@ -151,8 +152,7 @@ enum WidgetType : uint8_t {
     W_GAUGE,     // แถบเกจแนวนอนค่าเดียว
     W_RECT,      // สี่เหลี่ยม ทึบหรือเส้นขอบ
     W_HLINE,     // เส้นแนวนอน ใช้เป็นเส้นอ้างอิง/เส้นคั่น
-    W_VLINE,     // เส้นแนวตั้ง ใช้เป็นเส้นอ้างอิง/เส้นคั่น
-    W_QR         // QR code — เข้ารหัสจาก text ตรึง VERSION 7 / ECC-L (45x45 module)
+    W_VLINE      // เส้นแนวตั้ง ใช้เป็นเส้นอ้างอิง/เส้นคั่น
 };
 
 // widget เดียวครอบทุกชนิด เปลืองบ้างตรง text ที่กราฟไม่ใช้
@@ -174,12 +174,8 @@ struct Widget {
     uint8_t decimals = 0;         // ทศนิยมของตัวเลขที่ renderer พิมพ์เอง
     uint16_t start = 0;           // ตำแหน่งเริ่มในคลังตัวเลข
     uint8_t count = 0;            // จำนวนจุด (candles = จำนวนแท่ง ไม่ใช่จำนวน float)
-    char text[DASH_TEXT_LEN] = "";
-    char label[DASH_TEXT_LEN] = ""; // ป้ายกำกับ: หัวเรื่อง KPI / ข้อความกลางโดนัท
-    // QR เท่านั้น — payload จริง (เช่น สาย PromptPay) ยาวได้ถึง ~150 ไบต์
-    // ยาวเกิน DASH_TEXT_LEN(48) มาก ถ้าใช้ text[] ร่วมจะโดน strlcpy ตัดจนพัง checksum/CRC
-    // จึงต้องแยกบัฟเฟอร์ของตัวเอง ไม่ปนกับ text ที่ widget อื่นใช้โชว์บนจอ
-    char qrText[160] = "";
+    char text[DASH_TEXT_LEN] = "";   // ป้ายกำกับบน KPI / ข้อความ W_TEXT
+    char label[DASH_LABEL_LEN] = ""; // ค่าหลัก KPI / ข้อความกลางโดนัท
     // Scale reference: อ้างอิงสเกลจาก widget อื่น แทนใช้พิกัดแบบ pixel ตายตัว
     bool hasRef = false;        // true = ใช้ value + refType แทนพิกัด x/y ตายตัว
     float refValue = 0.0f;      // ค่าข้อมูล (เช่น ราคา, index) ที่จะ map ผ่านสเกล
@@ -197,6 +193,15 @@ struct Dashboard {
     bool valid = false;           // มี frame ที่วาดได้อยู่
     bool dirty = false;           // มี frame ใหม่ที่ยังไม่ได้วาด
     unsigned long lastPush = 0;   // ใช้นับ TTL
+
+    // QR code — ใช้ได้ 1 อันต่อ dashboard (หน้าจอ 240x240 พอดี)
+    // payload ยาวได้ถึง ~150 ไบต์ (PromptPay/URL) แยกเก็บนอก Widget เพราะ
+    // Widget อื่นไม่ใช้ และหลาย QR พร้อมกันไม่สมเหตุผล (QR เล็กสแกนยาก)
+    char qrText[160] = "";
+    int16_t qrX = 5, qrY = 5;
+    int16_t qrW = 200, qrH = 200;
+    uint16_t qrBg = ST77XX_BLACK;
+    uint16_t qrFg = ST77XX_WHITE;
 };
 
 Dashboard dash;
@@ -1128,11 +1133,11 @@ void drawCandles(const Widget &g) {
     }
 
     // วาดเส้นราคาล่าสุด (close ของแท่งสุดท้าย)
-    if (g.count > 0) {
+    /*if (g.count > 0) {
         float lastClose = wval(g, (g.count - 1) * 4 + 3);
         int16_t yLast = toY(lastClose);
         tft.drawFastHLine(g.x, yLast, plotW, ST77XX_YELLOW);
-    }
+    }*/
 }
 
 // Column chart — แท่งตั้งเรียงซ้ายไปขวา ระบายจากเส้นฐาน (ค่า 0 ถ้าอยู่ในช่วง)
@@ -1365,19 +1370,19 @@ void drawDonut(const Widget &g) {
 void drawKpi(const Widget &g) {
     if (g.axis) tft.drawRect(g.x, g.y, g.w, g.h, DASH_GRID_COLOR);
 
-    // ป้ายกำกับ 1x บนสุดของการ์ด
-    if (g.label[0]) {
-        int16_t tw = (int16_t)strlen(g.label) * 6;
+    // ป้ายกำกับ 1x บนสุดของการ์ด - ใช้ g.text
+    if (g.text[0]) {
+        int16_t tw = (int16_t)strlen(g.text) * 6;
         tft.setTextSize(1);
         tft.setTextColor(DASH_MUTED_COLOR);
         tft.setCursor(g.x + (g.w - tw) / 2, g.y + 4);
-        tft.print(g.label);
+        tft.print(g.text);
     }
 
-    // ตัวเลขหลัก: ใช้ text ถ้าส่งมา (จัดรูปแบบฝั่ง HA ได้อิสระ) ไม่งั้นพิมพ์จาก data[0]
-    char buf[DASH_TEXT_LEN];
-    if (g.text[0]) {
-        strlcpy(buf, g.text, sizeof(buf));
+    // ตัวเลขหลัก: ใช้ label ถ้าส่งมา (จัดรูปแบบฝั่ง HA ได้อิสระ) ไม่งั้นพิมพ์จาก data[0]
+    char buf[DASH_LABEL_LEN];
+    if (g.label[0]) {
+        strlcpy(buf, g.label, sizeof(buf));
     } else if (g.count > 0) {
         snprintf(buf, sizeof(buf), "%.*f", g.decimals, wval(g, 0));
     } else {
@@ -1397,8 +1402,8 @@ void drawKpi(const Widget &g) {
     tft.setTextSize(sc);
     tft.setTextColor(col);
     // จัดกลางกรอบ เผื่อที่ป้ายกำกับด้านบน 10px เมื่อมีป้าย
-    int16_t top = g.y + (g.label[0] ? 10 : 0);
-    int16_t boxH = g.h - (g.label[0] ? 10 : 0);
+    int16_t top = g.y + (g.text[0] ? 10 : 0);
+    int16_t boxH = g.h - (g.text[0] ? 10 : 0);
     tft.setCursor(g.x + (g.w - tw) / 2, top + (boxH - th) / 2);
     tft.print(buf);
 }
@@ -1499,50 +1504,46 @@ String buildPromptPayPayload(const char* id, float amount) {
     return payload;
 }
 
-// QR code — เข้ารหัส g.qrText (บัฟเฟอร์แยก 160 ไบต์ ไม่ใช้ g.text/DASH_TEXT_LEN=48
-// เพราะ payload PromptPay จริงยาว 80-90+ ตัวอักษรอยู่แล้ว ถ้าใช้ g.text จะถูก strlcpy
-// ตัดทิ้งแบบเงียบๆ กลายเป็น QR ที่สแกนได้แต่จ่ายเงินผิด/error) ด้วยไลบรารีที่พอร์ตมาจาก
+// QR code — เข้ารหัสจาก text (payload ยาวได้ถึง ~150 ไบต์) ด้วยไลบรารีที่พอร์ตมาจาก
 // github.com/anunpanya/ESP8266_QRcode (ตัวเดิม tz1/qrduino) ตรึงไว้ที่ VERSION 7 / ECC-L
 // เป็นตาราง 45x45 module รองรับข้อมูลดิบ ~150 ไบต์
 // ไลบรารีเดิมมี wrapper ผูกกับจอ SSD1306 โดยเฉพาะ (qrcode.cpp/.h ไม่ได้พอร์ตมา) จึงเรียก
 // qrencode() ตรงๆ แล้ววาด module เองด้วย fillRect รวมแนวนอนเป็นแถบเดียวต่อ run
 // (สีเดียวกันติดกันในแนว x) กัน SPI call ถี่เกินจำเป็น แบบเดียวกับที่ทำใน drawDonut
-void drawQr(const Widget &g) {
-    if (!g.qrText[0]) return;
+void drawQr(const char* text, int16_t x, int16_t y, int16_t w, int16_t h,
+            uint16_t bg, uint16_t fg) {
+    if (!text || !text[0]) return;
 
     // strinbuf ยาว 270 ไบต์ (ประกาศจริงใน frame.c) แต่ qrencode.h ประกาศแบบ
     // extern unsigned char strinbuf[] (incomplete type) เอา sizeof() ไม่ได้ — ต้องฮาร์ดโค้ด
     // ตรึง VERSION7/ECC-L ใช้จริงแค่ ~150 ไบต์แรก ตัดข้อความยาวเกินไว้ก่อนกันเผื่อ
     const size_t STRINBUF_LEN = 270;
-    size_t len = strlen(g.qrText);
+    size_t len = strlen(text);
     if (len > 150) len = 150;
     memset(strinbuf, 0, STRINBUF_LEN);
-    memcpy(strinbuf, g.qrText, len);
+    memcpy(strinbuf, text, len);
     strinbuf[len] = 0;
 
     qrencode(); // strinbuf เข้า, qrframe ออก เป็นตาราง WD x WD (45x45) บิตแพ็ก
 
-    const int16_t side = (g.w < g.h) ? g.w : g.h;
+    const int16_t side = (w < h) ? w : h;
     int16_t px = side / WD; // ขนาดพิกเซลต่อ module
     if (px < 1) px = 1;
     const int16_t qrSize = px * WD;
-    const int16_t ox = g.x + (g.w - qrSize) / 2; // จัดกลางกรอบที่ขอ
-    const int16_t oy = g.y + (g.h - qrSize) / 2;
+    const int16_t ox = x + (w - qrSize) / 2; // จัดกลางกรอบที่ขอ
+    const int16_t oy = y + (h - qrSize) / 2;
 
-    uint16_t dark = g.color;
-    uint16_t light = g.color2;
+    // เคลียร์พื้นด้วย bg ก่อน ครอบคลุม quiet zone รอบขอบด้วย
+    tft.fillRect(x, y, w, h, bg);
 
-    // เคลียร์พื้นด้วย light ก่อน ครอบคลุม quiet zone รอบขอบด้วย
-    tft.fillRect(g.x, g.y, g.w, g.h, light);
-
-    for (uint8_t y = 0; y < WD; y++) {
-        uint8_t x = 0;
-        while (x < WD) {
-            uint8_t bit = QRBIT(x, y);
-            uint8_t runStart = x;
-            while (x < WD && QRBIT(x, y) == bit) x++;
-            if (bit) { // วาดเฉพาะ module มืด เพราะพื้น light ทาไว้แล้วทั้งกรอบ
-                tft.fillRect(ox + runStart * px, oy + y * px, (x - runStart) * px, px, dark);
+    for (uint8_t yy = 0; yy < WD; yy++) {
+        uint8_t xx = 0;
+        while (xx < WD) {
+            uint8_t bit = QRBIT(xx, yy);
+            uint8_t runStart = xx;
+            while (xx < WD && QRBIT(xx, yy) == bit) xx++;
+            if (bit) { // วาดเฉพาะ module มืด เพราะพื้น bg ทาไว้แล้วทั้งกรอบ
+                tft.fillRect(ox + runStart * px, oy + yy * px, (xx - runStart) * px, px, fg);
             }
         }
         yield();
@@ -1577,11 +1578,7 @@ void renderDashboard() {
     tft.fillScreen(ST77XX_BLACK);
 
     // มี QR อยู่ในเฟรมนี้ไหม — ใช้หรี่จอกันสว่างจ้าจนกล้องมือถือโฟกัสไม่ติด (ผู้ใช้แจ้งบัค)
-    // เช็คก่อนวาด ไม่ใช่ระหว่างวาด เพราะ QR อาจไม่ใช่ widget แรกในลิสต์
-    bool hasQr = false;
-    for (uint8_t i = 0; i < dash.widgetCount; i++) {
-        if (dash.widgets[i].type == W_QR && dash.widgets[i].qrText[0]) { hasQr = true; break; }
-    }
+    bool hasQr = (dash.qrText[0] != '\0');
     setBacklightPct(hasQr ? QR_DIM_BRIGHTNESS_PCT : sysConfig.brightness);
 
     // Pass 1: วาดกราฟ — สร้างสเกลให้ primitive อ้างอิงได้
@@ -1597,7 +1594,6 @@ void renderDashboard() {
             case W_DONUT:   if (g.count) drawDonut(g);      break;
             case W_KPI:     drawKpi(g);                     break;
             case W_GAUGE:   drawGauge(g);                   break;
-            case W_QR:      if (g.qrText[0]) drawQr(g);      break;
             default: break;
         }
     }
@@ -1643,6 +1639,12 @@ void renderDashboard() {
                 break;
             default: break;
         }
+    }
+
+    // วาด QR code ตอนท้าย (ถ้ามี)
+    if (hasQr) {
+        drawQr(dash.qrText, dash.qrX, dash.qrY, dash.qrW, dash.qrH,
+               dash.qrBg, dash.qrFg);
     }
 
     dash.dirty = false;
@@ -2020,6 +2022,7 @@ void handleApiDraw() {
     // ล้าง frame เดิมทั้งหมดก่อนรับของใหม่ — frame ต้องเป็นภาพสมบูรณ์ในตัวเอง
     dash.widgetCount = 0;
     dash.poolUsed = 0;
+    dash.qrText[0] = '\0';  // ล้าง QR เก่า
 
     // ตัดตัวเลขจากคลังกลาง คืนจำนวนจุดที่รับได้จริง (อาจน้อยกว่าที่ส่งมาถ้าคลังเต็ม)
     // valsPerPoint>1 สำหรับ candles ที่หนึ่งจุดกิน 4 ช่อง — ต้องลงครบชุดหรือไม่ลงเลย
@@ -2149,19 +2152,26 @@ void handleApiDraw() {
             if (g.scale > 6) g.scale = 6;
             g.type = W_KPI;
 
+            // ป้ายกำกับบน (text)
             const char* s = wgt["text"] | "";
             if (*s) strlcpy(g.text, s, sizeof(g.text));
 
-            // รับได้ทั้ง value เดี่ยวและ data array — ต้องมีอย่างใดอย่างหนึ่งกับ text
-            if (wgt.containsKey("value") && dash.poolUsed < DASH_POOL_SIZE) {
-                g.start = dash.poolUsed;
-                dash.pool[dash.poolUsed++] = wgt["value"] | 0.0f;
-                g.count = 1;
-            } else {
-                JsonArray data = wgt["data"].as<JsonArray>();
-                if (!data.isNull() && data.size() > 0) takeSeries(data, g, 1);
+            // ค่าหลัก (label หรือ value)
+            s = wgt["label"] | wgt["value"] | "";
+            if (*s) strlcpy(g.label, s, sizeof(g.label));
+
+            // รับได้ทั้ง value เดี่ยวและ data array — ต้องมีอย่างใดอย่างหนึ่งกับ label
+            if (!g.label[0]) {
+                if (wgt.containsKey("value") && dash.poolUsed < DASH_POOL_SIZE) {
+                    g.start = dash.poolUsed;
+                    dash.pool[dash.poolUsed++] = wgt["value"] | 0.0f;
+                    g.count = 1;
+                } else {
+                    JsonArray data = wgt["data"].as<JsonArray>();
+                    if (!data.isNull() && data.size() > 0) takeSeries(data, g, 1);
+                }
             }
-            if (!g.text[0] && g.count == 0) continue;
+            if (!g.label[0] && g.count == 0) continue;
         }
         // ---- เกจแนวนอน ----
         else if (!strcmp(type, "gauge")) {
@@ -2175,15 +2185,15 @@ void handleApiDraw() {
         }
         // ---- QR code: เข้ารหัสจาก text ตรึง VERSION7/ECC-L (45x45 module) ----
         // ไม่ใช้ readCommon() เพราะดีฟอลต์ color2=แดงของกราฟไม่เหมาะเป็นพื้นขาว
-        // ของ QR — ตั้งดีฟอลต์ตรงนี้เอง: color=ดำ(มืด), color2=ขาว(สว่าง/quiet zone)
+        // ของ QR — ตั้งดีฟอลต์ตรงนี้เอง: สีมืด(module), สีสว่าง(พื้น/quiet zone)
+        // เก็บแยกจาก widget array เพราะใช้ได้ 1 อันต่อ dashboard
         else if (!strcmp(type, "qr")) {
-            g.x = wgt["x"] | 5;
-            g.y = wgt["y"] | 5;
-            g.w = wgt["w"] | 200;
-            g.h = wgt["h"] | 200;
-            g.color  = parseColor(wgt["color"]  | "", ST77XX_BLACK);
-            g.color2 = parseColor(wgt["color2"] | "", ST77XX_WHITE);
-            g.type = W_QR;
+            dash.qrX = wgt["x"] | 5;
+            dash.qrY = wgt["y"] | 5;
+            dash.qrW = wgt["w"] | 200;
+            dash.qrH = wgt["h"] | 200;
+            dash.qrBg = parseColor(wgt["color"]  | "", ST77XX_BLACK);  // พื้นหลัง
+            dash.qrFg = parseColor(wgt["color2"] | "", ST77XX_WHITE); // module
 
             // สองทาง: ส่ง text ตรงมาเลย (สำหรับ URL/ข้อความทั่วไป) หรือส่ง promptpay_id
             // (+ promptpay_amount ถ้าต้องการตรึงยอด) ให้เฟิร์มแวร์ประกอบสาย EMV เอง
@@ -2192,16 +2202,17 @@ void handleApiDraw() {
             if (*ppId) {
                 float amt = wgt["promptpay_amount"] | 0.0f;
                 String payload = buildPromptPayPayload(ppId, amt);
-                if (payload.length() == 0 || payload.length() >= sizeof(g.qrText)) {
-                    continue; // id ไม่ใช่รูปแบบที่รองรับ (ไม่ใช่เบอร์โทร 10 หลัก/บัตร 13 หลัก) หรือยาวเกินบัฟเฟอร์
+                if (payload.length() == 0 || payload.length() >= sizeof(dash.qrText)) {
+                    continue; // id ไม่ใช่รูปแบบที่รองรับ หรือยาวเกินบัฟเฟอร์
                 }
-                strlcpy(g.qrText, payload.c_str(), sizeof(g.qrText));
+                strlcpy(dash.qrText, payload.c_str(), sizeof(dash.qrText));
             } else {
                 const char* s = wgt["text"] | "";
-                if (!*s) continue; // ไม่มีข้อความให้เข้ารหัส ข้าม widget นี้
-                // ใช้ qrText[160] ไม่ใช่ text[48] เพราะ payload PromptPay จริงยาว 80-90+ ตัวอักษร
-                strlcpy(g.qrText, s, sizeof(g.qrText));
+                if (!*s) continue; // ไม่มีข้อความให้เข้ารหัส ข้าม
+                strlcpy(dash.qrText, s, sizeof(dash.qrText));
             }
+            // ไม่เพิ่ม widget เข้า array — QR วาดแยกใน renderDashboard()
+            continue;
         }
         // ---- primitive วางเลย์เอาต์ ----
         else if (!strcmp(type, "rect") || !strcmp(type, "hline") || !strcmp(type, "vline")) {

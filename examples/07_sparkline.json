@@ -2,7 +2,7 @@
   "mode": "dashboard",
   "widgets": [
     { "type": "title", "text": "แนวโน้มย่อ", "color": "orange" },
-    { "type": "kpi", "label": "LATENCY ms", "value": 148,
+    { "type": "kpi", "text": "LATENCY ms", "value": 148,
       "x": 5, "y": 38, "w": 230, "h": 60, "size": 5, "color": "cyan" },
     { "type": "sparkline", "x": 5, "y": 104, "w": 230, "h": 40, "color": "cyan",
       "data": [132, 140, 138, 151, 149, 160, 155, 147, 142, 150, 158, 148] },

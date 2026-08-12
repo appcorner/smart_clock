@@ -2,9 +2,9 @@
   "mode": "dashboard",
   "widgets": [
     { "type": "title", "text": "ภาพรวมระบบ", "color": "orange" },
-    { "type": "kpi", "label": "UPTIME %", "value": 99.8, "decimals": 1,
+    { "type": "kpi", "text": "UPTIME %", "value": 99.8, "decimals": 1,
       "x": 5, "y": 34, "w": 112, "h": 52, "size": 3, "color": "green" },
-    { "type": "kpi", "label": "ERRORS", "value": 12,
+    { "type": "kpi", "text": "ERRORS", "value": 12,
       "x": 123, "y": 34, "w": 112, "h": 52, "size": 3, "color": "yellow",
       "threshold": 10, "color2": "red" },
     { "type": "column", "x": 5, "y": 94, "w": 145, "h": 76, "axis": false,

@@ -24,7 +24,7 @@ read -r -d '' PAYLOAD <<'JSON' || true
   "mode": "dashboard",
   "widgets": [
     {"type": "title", "text": "ทองคำ XAU/USD", "color": "orange"},
-    {"type": "candles", "x": 5, "y": 40, "w": 230, "h": 140,
+    {"type": "candles", "x": 5, "y": 40, "w": 240, "h": 140,
      "data": [
        [2610,2618,2604,2615], [2615,2622,2611,2612], [2612,2620,2606,2618],
        [2618,2631,2616,2629], [2629,2634,2621,2624], [2624,2628,2612,2615],
@@ -35,7 +35,19 @@ read -r -d '' PAYLOAD <<'JSON' || true
        [2637,2644,2630,2642], [2642,2658,2640,2655], [2655,2668,2652,2666],
        [2666,2672,2658,2661], [2661,2665,2649,2652], [2652,2670,2650,2668]
      ]},
-    {"type": "text", "text": "$2,668.00", "y": 195, "size": 2, "color": "green"}
+    {"type": "text", "text": "$2,668.00", "y": 195, "size": 2, "color": "green"},
+    {
+      "type": "hline",
+      "value": 2615,
+      "ref": "candles",
+      "color": "red"
+    },
+    {
+      "type": "hline",
+      "value": 2610,
+      "ref": "candles",
+      "color": "cyan"
+    }
   ]
 }
 JSON
@@ -55,6 +67,7 @@ sleep 10
 echo "==> GET /api/mode?to=clock"
 curl "${AUTH[@]}" "http://$HOST/api/mode?to=clock"
 echo
+sleep 10
 
 echo "==> GET /api/mode?to=dashboard (วาด frame เดิมซ้ำจาก RAM)"
 curl "${AUTH[@]}" "http://$HOST/api/mode?to=dashboard"
