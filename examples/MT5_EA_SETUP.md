@@ -1,5 +1,7 @@
 # SmartBox Candle Visualizer EA - Setup Guide
 
+![MT5 EA](../images/mt5_ea.jpg)
+
 ## ภาษาไทย
 
 ### ขั้นตอนการติดตั้ง
