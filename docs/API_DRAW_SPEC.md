@@ -213,14 +213,16 @@ POST /api/draw
   "x": 5, "y": 40, "w": 230, "h": 140,
   "color": "green",
   "color2": "red",
-  "axis": true
+  "axis": true,
+  "label": "XAU/USD"
 }
 ```
 
 **พารามิเตอร์:**
-- `data` (array of [O,H,L,C], บังคับ): แต่ละจุดเป็น array 4 ค่า
+- `data` (array of [O,H,L,C], บังคับ): แต่ละจุดเป็น array 4 ค่า `[open, high, low, close]`
 - `color` (string, ไม่บังคับ): สีแท่งขาขึ้น (close ≥ open) (ค่าเริ่มต้น: `"green"`)
 - `color2` (string, ไม่บังคับ): สีแท่งขาลง (close < open) (ค่าเริ่มต้น: `"red"`)
+- Common: `axis`, `min`, `max`, `decimals`
 
 ---
 
@@ -253,6 +255,12 @@ POST /api/draw
 
 ### 9. QR Code
 
+> **หมายเหตุ**: QR ไม่ใช่ widget ปกติ — เฟิร์มแวร์เก็บแยกไว้ใน Dashboard struct โดยตรง ดังนั้น:
+> - มีได้ **1 QR ต่อ frame** (ถ้าส่งหลายอัน อันหลังสุดจะชนะ)
+> - QR **ไม่นับ** ใน `DASH_MAX_WIDGETS`
+> - วาด**ทับสุดท้าย** เสมอ (อยู่บนสุดของ widget อื่นทั้งหมด)
+> - Backlight **หรี่อัตโนมัติ** เมื่อมี QR เพื่อให้กล้องมือถือสแกนได้ง่ายขึ้น
+
 วาด QR code สำหรับ URL หรือ PromptPay
 
 ```json
@@ -280,6 +288,11 @@ POST /api/draw
 - **ทางที่ 2**: PromptPay QR
   - `promptpay_id` (string, บังคับ): เบอร์โทร 10 หลัก หรือ เลขบัตรประชาชน 13 หลัก
   - `promptpay_amount` (float, ไม่บังคับ): จำนวนเงิน (ถ้าไม่ส่ง = ให้ผู้จ่ายกรอกเอง)
+- `color` (string, ไม่บังคับ): สี**พื้นหลัง** / quiet zone (ค่าเริ่มต้น: `"black"`)
+- `color2` (string, ไม่บังคับ): สี**module** / จุดข้อมูล (ค่าเริ่มต้น: `"white"`)
+- `x`, `y`, `w`, `h`: ตำแหน่งและขนาด (ค่าเริ่มต้น: `5, 5, 200, 200`)
+
+**หมายเหตุ**: เฟิร์มแวร์ใช้ QRcode Version 7 / ECC-L (45×45 modules) คงที่
 
 ---
 

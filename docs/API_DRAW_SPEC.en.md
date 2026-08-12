@@ -235,10 +235,10 @@ Horizontal progress bar
 ```
 
 **Parameters:**
-- `data` (array of [O,H,L,C], required): Each point is a 4-value array
+- `data` (array of [O,H,L,C], required): Each point is a 4-value array `[open, high, low, close]`
 - `color` (string, optional): Bullish candle color (close ≥ open) (default: `"green"`)
 - `color2` (string, optional): Bearish candle color (close < open) (default: `"red"`)
-- Common: `axis`, `min`, `max`
+- Common: `axis`, `min`, `max`, `decimals`
 
 ---
 
@@ -273,6 +273,12 @@ Horizontal progress bar
 
 ### 9. QR Code
 
+> **Note**: QR is not a regular widget — the firmware stores it directly in the Dashboard struct, so:
+> - Only **1 QR per frame** (if multiple are sent, the last one wins)
+> - QR does **not count** toward `DASH_MAX_WIDGETS`
+> - Always drawn **last** (on top of all other widgets)
+> - Backlight **auto-dims** when QR is present for easier camera scanning
+
 Draw QR code for URL or PromptPay
 
 ```json
@@ -300,8 +306,8 @@ Draw QR code for URL or PromptPay
 - **Option 2**: PromptPay QR
   - `promptpay_id` (string, required): 10-digit phone number or 13-digit ID card number
   - `promptpay_amount` (float, optional): Amount (if not sent = let payer enter amount)
-- `color` (string, optional): Dark module color (default: `"black"`)
-- `color2` (string, optional): Background quiet zone color (default: `"white"`)
+- `color` (string, optional): **Background** / quiet zone color (default: `"black"`)
+- `color2` (string, optional): **Module** / dot color (default: `"white"`)
 - `x`, `y`, `w`, `h`: Position and size (default: `5, 5, 200, 200`)
 
 **Note**: Firmware uses fixed QRcode Version 7 / ECC-L (45×45 modules)
