@@ -14,7 +14,7 @@
 
 2. **คัดลอก JSON Library**
    - ตรวจสอบว่ามี `JAson.mqh` ใน `MetaTrader 5\MQL5\Include\`
-   - ถ้าไม่มี ให้ดาวน์โหลดจาก: https://github.com/awesomeinc/JASON
+   - ถ้าไม่มี ให้ดาวน์โหลดจาก: https://www.mql5.com/en/code/13663
 
 3. **รีสตาร์ท MetaTrader 5**
 
@@ -51,14 +51,14 @@ Journal log จะแสดง:
 
 | พารามิเตอร์ | ค่าตั้งต้น | คำอธิบาย |
 |-----------|---------|---------|
-| Dashboard IP | 192.168.1.139 | IP address ของ SmartBox |
+| Dashboard IP | 192.168.1.148 | IP address ของ SmartBox |
 | Dashboard Port | 80 | port ของ REST API |
-| Dashboard Username | user | username สำหรับ authentication |
-| Dashboard Password | pass | password สำหรับ authentication |
-| Chart Title | Gold/USD | ชื่อสินค้าที่แสดง |
-| Title Color | clrOrange | สีของหัวข้อ (RGB) |
-| Candle Count | 24 | จำนวนแท่งเทียนที่ส่ง (1-40) |
-| Update Interval | 5 | ช่วงเวลาส่งข้อมูล (นาที) |
+| Dashboard Username | admin | username สำหรับ authentication |
+| Dashboard Password | smartclock | password สำหรับ authentication |
+| Chart Title | XAUUSD | ชื่อสินค้าที่แสดง |
+| Title Color | clrOrange | สีของหัวข้อ |
+| Candle Count | 40 | จำนวนแท่งเทียนที่ส่ง (1-40) |
+| Update Interval | 1 | ช่วงเวลาส่งข้อมูล (นาที) |
 | Enable Logging | true | เปิด debug logging |
 
 ---
@@ -75,7 +75,7 @@ Journal log จะแสดง:
 
 2. **Install JSON Library**
    - Ensure `JAson.mqh` exists in `MetaTrader 5\MQL5\Include\`
-   - If not, download from: https://github.com/awesomeinc/JASON
+   - If not, download from: https://www.mql5.com/en/code/13663
 
 3. **Restart MetaTrader 5**
 
@@ -112,14 +112,14 @@ You should see in Journal:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| Dashboard IP | 192.168.1.139 | SmartBox IP address |
+| Dashboard IP | 192.168.1.148 | SmartBox IP address |
 | Dashboard Port | 80 | REST API port |
-| Dashboard Username | user | Authentication username |
-| Dashboard Password | pass | Authentication password |
-| Chart Title | Gold/USD | Commodity name to display |
-| Title Color | clrOrange | Title color (RGB) |
-| Candle Count | 24 | Number of candles (1-40) |
-| Update Interval | 5 | Send interval (minutes) |
+| Dashboard Username | admin | Authentication username |
+| Dashboard Password | smartclock | Authentication password |
+| Chart Title | XAUUSD | Commodity name to display |
+| Title Color | clrOrange | Title color |
+| Candle Count | 40 | Number of candles (1-40) |
+| Update Interval | 1 | Send interval (minutes) |
 | Enable Logging | true | Enable debug logging |
 
 ---
@@ -128,7 +128,7 @@ You should see in Journal:
 
 ### Request Format
 
-Conforms to SmartClock `/api/draw` specification (see `.claude/skills/smartclock-draw.md`):
+Conforms to SmartClock `/api/draw` specification (see `docs/API_DRAW_SPEC.md`):
 
 ```json
 POST /api/draw
@@ -140,7 +140,7 @@ Authorization: Basic base64(username:password)
   "widgets": [
     {
       "type": "title",
-      "text": "Gold/USD",
+      "text": "XAUUSD",
       "color": "orange"
     },
     {
@@ -159,11 +159,31 @@ Authorization: Basic base64(username:password)
       "axis": true
     },
     {
+      "type": "hline",
+      "value": 2669.00,
+      "ref": "candles",
+      "color": "yellow"
+    },
+    {
       "type": "text",
-      "text": "2669.00",
-      "y": 190,
-      "size": 2,
+      "text": "Price : 2669.00",
+      "y": 180,
+      "size": 1,
+      "color": "yellow"
+    },
+    {
+      "type": "text",
+      "text": "Balance : 10000.00",
+      "y": 195,
+      "size": 1,
       "color": "white"
+    },
+    {
+      "type": "text",
+      "text": "Equity : 10500.00",
+      "y": 210,
+      "size": 1,
+      "color": "green"
     }
   ]
 }
