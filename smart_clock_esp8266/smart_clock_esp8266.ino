@@ -2,6 +2,9 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <ESP8266mDNS.h>
+#include <LittleFS.h>
+#include <TJpg_Decoder.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <SPI.h>
@@ -14,7 +17,7 @@
 // (ตัด wrapper เฉพาะ SSD1306 ทิ้ง เอาแต่ core อัลกอริทึมที่ไม่ผูกจอ)
 #include "qrencode.h"
 
-#define FW_VERSION "3.5.4"
+#define FW_VERSION "3.6.0"
 
 // รหัสผ่านหน้าเว็บเริ่มต้น — ตัวเครื่องจะเตือนบนจอและบนหน้าเว็บจนกว่าจะเปลี่ยน
 #define DEFAULT_WEB_USER "admin"
@@ -56,88 +59,19 @@
 #define DASH_DOC_SIZE     8192
 // ไม่มีใคร push ต่อภายในเวลานี้ ให้กลับไปหน้านาฬิกาเอง กัน HA ล่มแล้วจอค้างข้อมูลเก่า
 #define DASH_TTL_MS       600000UL  // 10 นาที
-
-// GeekMagic SmallTV Pinout Configuration
-#define TFT_MOSI 13 // GPIO13
-#define TFT_SCLK 14 // GPIO14
-#define TFT_DC    0 // GPIO0
-#define TFT_RST   2 // GPIO2
-#define TFT_CS   -1 // Tied to GND
-#define TFT_BL    5 // GPIO5 (Active Low Backlight)
-
-Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
-
-// EEPROM layout v2.x (ก่อนมี auth) เก็บไว้เพื่อ migrate ค่า Wi-Fi ของผู้ใช้
-struct ConfigV2 {
-    char ssid[32];
-    char password[64];
-    char city[32];
-    uint8_t brightness;
-    bool celsius;
-    bool hour12;
-    uint8_t magic; // 0xAB
-};
-
-// EEPROM layout v3.0.0 (มี auth แล้ว แต่ยังไม่ cache พิกัด)
-struct ConfigV300 {
-    char ssid[32];
-    char password[64];
-    char city[32];
-    uint8_t brightness;
-    bool celsius;
-    bool hour12;
-    char webUser[24];
-    char webPass[32];
-    uint8_t magic; // 0xAC
-};
-
-struct ClockConfig {
-    char ssid[32] = "";
-    char password[64] = "";
-    char city[32] = "Bangkok";
-    uint8_t brightness = 80;
-    bool celsius = true;
-    bool hour12 = false;
-    char webUser[24] = DEFAULT_WEB_USER;
-    char webPass[32] = DEFAULT_WEB_PASS;
-    // cache พิกัดที่ geocode ได้ เพื่อไม่ต้องยิง geocoding API ทุกครั้งที่บูต
-    float lat = 0.0f;
-    float lon = 0.0f;
-    uint8_t magic = 0xAD; // ขึ้นเป็น 0xAD เพราะเพิ่ม lat/lon
-};
-
-ClockConfig sysConfig;
-ESP8266WebServer server(80);
-bool isAPModeActive = false;
-
-// ข้อมูลอากาศจาก open-meteo
-struct WeatherData {
-    float tempC = 0.0f;
-    int code = -1;          // WMO weather code, -1 = ยังไม่มีข้อมูล
-    bool valid = false;     // เคยดึงสำเร็จอย่างน้อยหนึ่งครั้ง
-    bool stale = false;     // ครั้งล่าสุดดึงไม่สำเร็จ ค่าที่โชว์เป็นของเก่า
-    unsigned long lastOk = 0;
-};
-
-// ราคาทองจาก gold-api.com — ไม่มี % เปลี่ยนแปลงมาให้ จึงเทียบกับราคาครั้งก่อนเอง
-struct GoldData {
-    float price = 0.0f;
-    float prevPrice = 0.0f; // ราคาครั้งก่อน ใช้ตัดสินสีของตัวเลข
-    bool valid = false;
-    bool stale = false;
-    unsigned long lastOk = 0;
-};
-
-WeatherData weather;
-GoldData gold;
+#define IMAGE_TTL_MS      600000UL  // 10 นาที
+#define LIVE_TTL_MS       30000UL   // 30 วินาที
 
 // ---------------------------------------------------------------------------
 // Dashboard model — เก็บ display list ที่ parse แล้วไว้ใน RAM
-// เก็บไว้ (ไม่ใช่วาดทิ้ง) เพราะตอนสลับกลับจากหน้านาฬิกาต้องวาดซ้ำได้เอง
-// ไม่ต้องรอ push ก้อนใหม่ และเพราะอยู่แค่ RAM รีบูตแล้วกลับเป็นนาฬิกาอัตโนมัติ
 // ---------------------------------------------------------------------------
 
-enum DisplayMode : uint8_t { MODE_CLOCK = 0, MODE_DASHBOARD = 1 };
+enum DisplayMode : uint8_t { 
+    MODE_CLOCK = 0, 
+    MODE_DASHBOARD = 1,
+    MODE_IMAGE = 2,
+    MODE_LIVE = 3
+};
 DisplayMode displayMode = MODE_CLOCK;
 
 enum WidgetType : uint8_t {
@@ -155,8 +89,7 @@ enum WidgetType : uint8_t {
     W_VLINE      // เส้นแนวตั้ง ใช้เป็นเส้นอ้างอิง/เส้นคั่น
 };
 
-// widget เดียวครอบทุกชนิด เปลืองบ้างตรง text ที่กราฟไม่ใช้
-// แต่แลกกับ parser และ renderer ที่วนลูปเดียวจบ ไม่ต้องแยก slot ต่อชนิด
+// widget เดียวครอบทุกชนิด
 struct Widget {
     WidgetType type = W_NONE;
     int16_t x = 0, y = 0, w = 0, h = 0;
@@ -185,18 +118,11 @@ struct Widget {
 struct Dashboard {
     Widget widgets[DASH_MAX_WIDGETS];
     uint8_t widgetCount = 0;
-
-    // ทุก widget ตัดตัวเลขจากคลังก้อนเดียวกัน จองแยกต่อชนิดจะเปลือง RAM เกินจำเป็น
     float pool[DASH_POOL_SIZE];
     uint16_t poolUsed = 0;
-
     bool valid = false;           // มี frame ที่วาดได้อยู่
     bool dirty = false;           // มี frame ใหม่ที่ยังไม่ได้วาด
     unsigned long lastPush = 0;   // ใช้นับ TTL
-
-    // QR code — ใช้ได้ 1 อันต่อ dashboard (หน้าจอ 240x240 พอดี)
-    // payload ยาวได้ถึง ~150 ไบต์ (PromptPay/URL) แยกเก็บนอก Widget เพราะ
-    // Widget อื่นไม่ใช้ และหลาย QR พร้อมกันไม่สมเหตุผล (QR เล็กสแกนยาก)
     char qrText[160] = "";
     int16_t qrX = 5, qrY = 5;
     int16_t qrW = 200, qrH = 200;
@@ -205,6 +131,152 @@ struct Dashboard {
 };
 
 Dashboard dash;
+
+// Wi-Fi upkeep state
+unsigned long wifiLostSince = 0;   // 0 = ยังไม่หลุด
+unsigned long lastReconnectTry = 0;
+
+// In-Memory Ring Buffer Logger สำหรับ /log
+#define LOG_BUFFER_SIZE 2048
+char logBuffer[LOG_BUFFER_SIZE];
+size_t logBufferIndex = 0;
+bool logBufferFull = false;
+
+void appLog(const String &msg) {
+    Serial.println(msg);
+    size_t len = msg.length();
+    for (size_t i = 0; i < len; i++) {
+        logBuffer[logBufferIndex] = msg[i];
+        logBufferIndex = (logBufferIndex + 1) % LOG_BUFFER_SIZE;
+        if (logBufferIndex == 0) logBufferFull = true;
+    }
+    logBuffer[logBufferIndex] = '\n';
+    logBufferIndex = (logBufferIndex + 1) % LOG_BUFFER_SIZE;
+    if (logBufferIndex == 0) logBufferFull = true;
+}
+
+String getLogs() {
+    String out = "";
+    out.reserve(LOG_BUFFER_SIZE + 10);
+    if (logBufferFull) {
+        for (size_t i = logBufferIndex; i < LOG_BUFFER_SIZE; i++) {
+            out += logBuffer[i];
+        }
+    }
+    for (size_t i = 0; i < logBufferIndex; i++) {
+        out += logBuffer[i];
+    }
+    return out;
+}
+
+// GeekMagic SmallTV Pinout Configuration
+#define TFT_MOSI 13 // GPIO13
+#define TFT_SCLK 14 // GPIO14
+#define TFT_DC    0 // GPIO0
+#define TFT_RST   2 // GPIO2
+#define TFT_CS   -1 // Tied to GND
+#define TFT_BL    5 // GPIO5 (Active Low Backlight)
+
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+
+// TJpg_Decoder output callback สำหรับ Adafruit_ST7789
+bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) {
+    if (y >= tft.height()) return 0;
+    tft.drawRGBBitmap(x, y, bitmap, w, h);
+    return 1;
+}
+
+// EEPROM layout v2.x (ก่อนมี auth) เก็บไว้เพื่อ migrate ค่า Wi-Fi ของผู้ใช้
+struct ConfigV2 {
+    char ssid[32];
+    char password[64];
+    char city[32];
+    uint8_t brightness;
+    bool celsius;
+    bool hour12;
+    uint8_t magic; // 0xAB
+};
+
+// EEPROM layout v3.0.0 (มี auth แล้ว แต่ยังไม่ cache พิกัด)
+struct ConfigV300 {
+    char ssid[32];
+    char password[64];
+    char city[32];
+    uint8_t brightness;
+    bool celsius;
+    bool hour12;
+    char webUser[24];
+    char webPass[32];
+    uint8_t magic; // 0xAC
+};
+
+// EEPROM layout v3.5.4 (cache พิกัดแล้ว แต่ยังไม่มี gmtOffset)
+struct ConfigV354 {
+    char ssid[32];
+    char password[64];
+    char city[32];
+    uint8_t brightness;
+    bool celsius;
+    bool hour12;
+    char webUser[24];
+    char webPass[32];
+    float lat;
+    float lon;
+    uint8_t magic; // 0xAD
+};
+
+struct ClockConfig {
+    char ssid[32] = "";
+    char password[64] = "";
+    char city[32] = "Bangkok";
+    uint8_t brightness = 80;
+    bool celsius = true;
+    bool hour12 = false;
+    char webUser[24] = DEFAULT_WEB_USER;
+    char webPass[32] = DEFAULT_WEB_PASS;
+    float lat = 0.0f;
+    float lon = 0.0f;
+    int32_t gmtOffset = 25200; // GMT+7 = 25200s (Bangkok)
+    uint8_t magic = 0xAE; // ขึ้นเป็น 0xAE เพราะเพิ่ม gmtOffset
+};
+
+ClockConfig sysConfig;
+ESP8266WebServer server(80);
+bool isAPModeActive = false;
+
+// จัดการการอัปโหลดไฟล์รูปภาพ
+#define IMAGE_DIR "/image/"
+File uploadFile;
+char currentImagePath[64] = "";
+bool imageDirty = false;
+unsigned long lastImagePush = 0;
+
+// Live message data สำหรับ /api/update
+char liveLine1[64] = "";
+char liveLine2[64] = "";
+bool liveDirty = false;
+unsigned long lastLivePush = 0;
+
+// ข้อมูลอากาศจาก open-meteo
+struct WeatherData {
+    float tempC = 0.0f;
+    int code = -1;          // WMO weather code, -1 = ยังไม่มีข้อมูล
+    bool valid = false;     // เคยดึงสำเร็จอย่างน้อยหนึ่งครั้ง
+    bool stale = false;     // ครั้งล่าสุดดึงไม่สำเร็จ ค่าที่โชว์เป็นของเก่า
+    unsigned long lastOk = 0;
+};
+
+// ราคาทองจาก gold-api.com — ไม่มี % เปลี่ยนแปลงมาให้ จึงเทียบกับราคาครั้งก่อนเอง
+struct GoldData {
+    float price = 0.0f;
+    float prevPrice = 0.0f; // ราคาครั้งก่อน ใช้ตัดสินสีของตัวเลข
+    bool valid = false;
+    bool stale = false;
+    unsigned long lastOk = 0;
+};
+
+WeatherData weather;
+GoldData gold;
 
 // forward declaration — ตัววาดจออยู่ก่อนชั้น network ในไฟล์ แต่ต้องเรียกตัวแปลง code นี้
 const char* weatherCodeToThai(int code);
@@ -216,22 +288,22 @@ bool usingDefaultWebPass() {
 
 void saveConfigEEPROM() {
     EEPROM.begin(512);
-    sysConfig.magic = 0xAD;
+    sysConfig.magic = 0xAE;
     EEPROM.put(0, sysConfig);
     EEPROM.commit();
     EEPROM.end();
     Serial.println(F("Config Saved to EEPROM!"));
 }
 
-// อ่าน config จาก EEPROM พร้อม migration chain 0xAB -> 0xAC -> 0xAD
+// อ่าน config จาก EEPROM พร้อม migration chain 0xAB -> 0xAC -> 0xAD -> 0xAE
 // ทุก branch ต้องกัน string ที่ไม่มี null terminator ก่อนเรียก strlen
 void loadConfigEEPROM() {
     EEPROM.begin(512);
 
-    // ชั้นที่ 1: layout ปัจจุบัน (0xAD)
+    // ชั้นที่ 1: layout ปัจจุบัน (0xAE)
     ClockConfig cfgNew;
     EEPROM.get(0, cfgNew);
-    if (cfgNew.magic == 0xAD) {
+    if (cfgNew.magic == 0xAE) {
         cfgNew.ssid[sizeof(cfgNew.ssid) - 1] = '\0';
         if (strlen(cfgNew.ssid) > 0) {
             sysConfig = cfgNew;
@@ -241,13 +313,43 @@ void loadConfigEEPROM() {
             sysConfig.webUser[sizeof(sysConfig.webUser) - 1] = '\0';
             sysConfig.webPass[sizeof(sysConfig.webPass) - 1] = '\0';
             EEPROM.end();
-            Serial.println(F("Loaded Config from EEPROM (0xAD)."));
-            Serial.printf_P(PSTR("SSID: %s  lat=%.4f lon=%.4f\n"), sysConfig.ssid, sysConfig.lat, sysConfig.lon);
+            Serial.println(F("Loaded Config from EEPROM (0xAE)."));
+            Serial.printf_P(PSTR("SSID: %s  lat=%.4f lon=%.4f gmt=%d\n"), sysConfig.ssid, sysConfig.lat, sysConfig.lon, sysConfig.gmtOffset);
             return;
         }
     }
 
-    // ชั้นที่ 2: layout v3.0.0 (0xAC) — ยกทุกอย่างมา แต่ต้อง geocode พิกัดใหม่
+    // ชั้นที่ 2: layout v3.5.4 (0xAD) — มี lat/lon แล้ว ขาด gmtOffset
+    ConfigV354 cfg354;
+    EEPROM.get(0, cfg354);
+    if (cfg354.magic == 0xAD) {
+        cfg354.ssid[sizeof(cfg354.ssid) - 1] = '\0';
+        if (strlen(cfg354.ssid) > 0) {
+            cfg354.password[sizeof(cfg354.password) - 1] = '\0';
+            cfg354.city[sizeof(cfg354.city) - 1] = '\0';
+            cfg354.webUser[sizeof(cfg354.webUser) - 1] = '\0';
+            cfg354.webPass[sizeof(cfg354.webPass) - 1] = '\0';
+
+            strlcpy(sysConfig.ssid, cfg354.ssid, sizeof(sysConfig.ssid));
+            strlcpy(sysConfig.password, cfg354.password, sizeof(sysConfig.password));
+            strlcpy(sysConfig.city, cfg354.city, sizeof(sysConfig.city));
+            strlcpy(sysConfig.webUser, cfg354.webUser, sizeof(sysConfig.webUser));
+            strlcpy(sysConfig.webPass, cfg354.webPass, sizeof(sysConfig.webPass));
+            sysConfig.brightness = cfg354.brightness;
+            sysConfig.celsius = cfg354.celsius;
+            sysConfig.hour12 = cfg354.hour12;
+            sysConfig.lat = cfg354.lat;
+            sysConfig.lon = cfg354.lon;
+            sysConfig.gmtOffset = 25200; // GMT+7 default
+
+            EEPROM.end();
+            Serial.println(F("Migrated config 0xAD -> 0xAE."));
+            saveConfigEEPROM();
+            return;
+        }
+    }
+
+    // ชั้นที่ 3: layout v3.0.0 (0xAC) — ยกทุกอย่างมา แต่ต้อง geocode พิกัดใหม่
     ConfigV300 cfg300;
     EEPROM.get(0, cfg300);
     if (cfg300.magic == 0xAC) {
@@ -268,15 +370,16 @@ void loadConfigEEPROM() {
             sysConfig.hour12 = cfg300.hour12;
             sysConfig.lat = 0.0f; // บังคับ geocode ใหม่ตอนบูต
             sysConfig.lon = 0.0f;
+            sysConfig.gmtOffset = 25200;
 
             EEPROM.end();
-            Serial.println(F("Migrated config 0xAC -> 0xAD (will geocode city)."));
+            Serial.println(F("Migrated config 0xAC -> 0xAE (will geocode city)."));
             saveConfigEEPROM();
             return;
         }
     }
 
-    // ชั้นที่ 3: layout v2.x (0xAB) — รหัสผ่านหน้าเว็บกลับเป็นค่าเริ่มต้น
+    // ชั้นที่ 4: layout v2.x (0xAB) — รหัสผ่านหน้าเว็บกลับเป็นค่าเริ่มต้น
     ConfigV2 cfg2;
     EEPROM.get(0, cfg2);
     if (cfg2.magic == 0xAB) {
@@ -291,10 +394,13 @@ void loadConfigEEPROM() {
             sysConfig.brightness = cfg2.brightness;
             sysConfig.celsius = cfg2.celsius;
             sysConfig.hour12 = cfg2.hour12;
+            sysConfig.lat = 0.0f;
+            sysConfig.lon = 0.0f;
+            sysConfig.gmtOffset = 25200;
             // webUser/webPass คงค่าเริ่มต้นไว้ ผู้ใช้ต้องตั้งรหัสใหม่เอง
 
             EEPROM.end();
-            Serial.println(F("Migrated config 0xAB -> 0xAD (web password reset to default)."));
+            Serial.println(F("Migrated config 0xAB -> 0xAE (web password reset to default)."));
             saveConfigEEPROM();
             return;
         }
@@ -1281,11 +1387,57 @@ void switchToDashboard() {
     renderDashboard();
 }
 
+void renderJpgImage(const char* path) {
+    if (!LittleFS.exists(path)) {
+        appLog(String(F("Image not found: ")) + path);
+        return;
+    }
+    File jpgFile = LittleFS.open(path, "r");
+    if (!jpgFile) {
+        appLog(String(F("Failed to open image: ")) + path);
+        return;
+    }
+    tft.startWrite();
+    TJpgDec.drawFsJpg(0, 0, jpgFile);
+    tft.endWrite();
+    jpgFile.close();
+    imageDirty = false;
+}
+
+void renderLiveMessage() {
+    tft.fillScreen(ST77XX_BLACK);
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setTextSize(2);
+    tft.setCursor(10, 30);
+    tft.println(liveLine1);
+    if (liveLine2[0] != '\0') {
+        tft.setCursor(10, 70);
+        tft.setTextColor(ST77XX_CYAN);
+        tft.println(liveLine2);
+    }
+    liveDirty = false;
+}
+
+void switchToImage(const char* path) {
+    strlcpy(currentImagePath, path, sizeof(currentImagePath));
+    displayMode = MODE_IMAGE;
+    imageDirty = true;
+    lastImagePush = millis();
+    renderJpgImage(currentImagePath);
+}
+
+void switchToLive() {
+    displayMode = MODE_LIVE;
+    liveDirty = true;
+    lastLivePush = millis();
+    renderLiveMessage();
+}
+
 void switchToClock() {
     displayMode = MODE_CLOCK;
     // กลับหน้านาฬิกาแล้วต้องคืนความสว่างเดิมด้วย เผื่อออกมาจากหน้า QR ที่หรี่ไว้
     setBacklightPct(sysConfig.brightness);
-    initStaticLCDScreen(); // วาดใหม่ทั้งใบ เพราะ dashboard ทับพื้นที่เดิมไปหมด
+    initStaticLCDScreen(); // วาดใหม่ทั้งใบ เพราะ dashboard/image ทับพื้นที่เดิมไปหมด
     updateTimeOnly();
 }
 
@@ -1597,6 +1749,205 @@ void handleApiSet() {
 }
 
 // ---------------------------------------------------------------------------
+// GeekMagic Standard API Handlers (Compatible with Home Assistant geekmagic-hacs)
+// ---------------------------------------------------------------------------
+
+void handleAppJson() {
+    StaticJsonDocument<256> doc;
+    doc["theme"] = 0;
+    doc["brt"] = sysConfig.brightness;
+    doc["img"] = currentImagePath;
+    doc["gmtOffset"] = sysConfig.gmtOffset;
+    String res;
+    serializeJson(doc, res);
+    server.send(200, F("application/json"), res);
+}
+
+void handleSpaceJson() {
+    FSInfo fs_info;
+    LittleFS.info(fs_info);
+    StaticJsonDocument<128> doc;
+    doc["total"] = fs_info.totalBytes;
+    doc["free"] = fs_info.totalBytes - fs_info.usedBytes;
+    String res;
+    serializeJson(doc, res);
+    server.send(200, F("application/json"), res);
+}
+
+void handleBrtJson() {
+    String res = "{\"brt\":\"" + String(sysConfig.brightness) + "\"}";
+    server.send(200, F("application/json"), res);
+}
+
+void handleVersionJson() {
+    String res = "{\"version\":\"" FW_VERSION "\"}";
+    server.send(200, F("application/json"), res);
+}
+
+void handleSet() {
+    bool updated = false;
+
+    if (server.hasArg("brt")) {
+        int brt = server.arg("brt").toInt();
+        sysConfig.brightness = constrain(brt, 0, 100);
+        setBacklightPct(sysConfig.brightness);
+        saveConfigEEPROM();
+        updated = true;
+    }
+
+    if (server.hasArg("gmt")) {
+        sysConfig.gmtOffset = server.arg("gmt").toInt();
+        saveConfigEEPROM();
+        configTime(sysConfig.gmtOffset, 0, "pool.ntp.org", "time.cloudflare.com");
+        updated = true;
+    }
+
+    if (server.hasArg("img")) {
+        String img = server.arg("img");
+        strlcpy(currentImagePath, img.c_str(), sizeof(currentImagePath));
+        displayMode = MODE_IMAGE;
+        imageDirty = true;
+        lastImagePush = millis();
+        renderJpgImage(currentImagePath);
+        updated = true;
+    }
+
+    if (server.hasArg("clear")) {
+        if (server.arg("clear") == "image") {
+            Dir dir = LittleFS.openDir(IMAGE_DIR);
+            while (dir.next()) {
+                LittleFS.remove(dir.fileName());
+            }
+            currentImagePath[0] = '\0';
+            if (displayMode == MODE_IMAGE) switchToClock();
+            updated = true;
+        }
+    }
+
+    server.send(200, F("text/plain"), updated ? F("OK") : F("No action"));
+}
+
+void handleFileUpload() {
+    HTTPUpload& upload = server.upload();
+
+    if (upload.status == UPLOAD_FILE_START) {
+        String filename = upload.filename;
+        String dir = IMAGE_DIR;
+        if (server.hasArg("dir")) {
+            dir = server.arg("dir");
+        }
+        if (!dir.endsWith("/")) dir += "/";
+        if (!LittleFS.exists(dir)) {
+            LittleFS.mkdir(dir);
+        }
+
+        String filepath = dir + filename;
+        uploadFile = LittleFS.open(filepath, "w");
+        appLog(String(F("Upload start: ")) + filepath);
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (uploadFile) {
+            uploadFile.write(upload.buf, upload.currentSize);
+        }
+    } else if (upload.status == UPLOAD_FILE_END) {
+        if (uploadFile) {
+            uploadFile.close();
+            appLog(String(F("Upload complete: ")) + upload.filename + String(F(" (")) + String(upload.totalSize) + String(F(" bytes)")));
+        }
+    }
+}
+
+void handleUploadDone() {
+    server.send(200, F("text/plain"), F("OK"));
+}
+
+void handleDelete() {
+    if (server.hasArg("file")) {
+        String filepath = server.arg("file");
+        if (LittleFS.remove(filepath)) {
+            if (String(currentImagePath) == filepath) {
+                currentImagePath[0] = '\0';
+                if (displayMode == MODE_IMAGE) switchToClock();
+            }
+            server.send(200, F("text/plain"), F("Deleted"));
+        } else {
+            server.send(404, F("text/plain"), F("Not found"));
+        }
+    } else {
+        server.send(400, F("text/plain"), F("Missing file parameter"));
+    }
+}
+
+void handleApiUpdate() {
+    if (server.hasArg("plain")) {
+        DynamicJsonDocument doc(1024);
+        DeserializationError err = deserializeJson(doc, server.arg("plain"));
+        if (!err) {
+            if (doc.containsKey("line1")) {
+                strlcpy(liveLine1, doc["line1"] | "", sizeof(liveLine1));
+            } else {
+                liveLine1[0] = '\0';
+            }
+            if (doc.containsKey("line2")) {
+                strlcpy(liveLine2, doc["line2"] | "", sizeof(liveLine2));
+            } else {
+                liveLine2[0] = '\0';
+            }
+            displayMode = MODE_LIVE;
+            liveDirty = true;
+            lastLivePush = millis();
+            renderLiveMessage();
+            server.send(200, F("text/plain"), F("OK"));
+            return;
+        }
+        server.send(400, F("text/plain"), F("JSON parse error"));
+    } else {
+        server.send(400, F("text/plain"), F("No JSON body"));
+    }
+}
+
+void handleReconfigureWiFi() {
+    server.send(200, F("text/plain"), F("WiFi Reconfiguration triggered. Device restarting to AP mode."));
+    delay(200);
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP("SmartClock-AP", "12345678");
+    isAPModeActive = true;
+    wifiLostSince = millis();
+    switchToClock();
+}
+
+void handleFactoryReset() {
+    server.send(200, F("text/plain"), F("Factory Reset triggered. Clearing data and restarting..."));
+    delay(200);
+    WiFi.disconnect(true);
+    ESP.eraseConfig();
+    LittleFS.format();
+    sysConfig = ClockConfig();
+    saveConfigEEPROM();
+    delay(500);
+    ESP.restart();
+}
+
+void handleLog() {
+    server.send(200, F("text/plain"), getLogs());
+}
+
+void handleConnect() {
+    if (!server.hasArg("ssid")) {
+        server.send(400, F("text/plain"), F("Missing SSID parameter"));
+        return;
+    }
+    String ssid = server.arg("ssid");
+    String pass = server.hasArg("password") ? server.arg("password") : (server.hasArg("pass") ? server.arg("pass") : "");
+    strlcpy(sysConfig.ssid, ssid.c_str(), sizeof(sysConfig.ssid));
+    strlcpy(sysConfig.password, pass.c_str(), sizeof(sysConfig.password));
+    saveConfigEEPROM();
+    server.send(200, F("text/plain"), F("Connecting to WiFi... Device will restart."));
+    delay(1000);
+    ESP.restart();
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/draw — รับ JSON template แล้วแปลงเป็น display list ใน RAM
 // ไม่วาดในนี้ แค่ตั้งธง dirty ให้ loop() วาด เพื่อตอบ HTTP กลับให้เร็ว
 // ---------------------------------------------------------------------------
@@ -1897,11 +2248,42 @@ void handleOTAUpdate() {
 }
 
 void setupWebServer() {
+    // Web UI
     server.on("/", HTTP_GET, [](){
         if (!requireAuth()) return;
         server.send_P(200, "text/html", INDEX_HTML);
     });
 
+    // GeekMagic Standard Compatibility Endpoints (เข้ากันได้กับ Home Assistant geekmagic-hacs)
+    server.on("/app.json", HTTP_GET, handleAppJson);
+    server.on("/space.json", HTTP_GET, handleSpaceJson);
+    server.on("/brt.json", HTTP_GET, handleBrtJson);
+    server.on("/version.json", HTTP_GET, handleVersionJson);
+    server.on("/set", HTTP_GET, handleSet);
+    server.on("/delete", HTTP_GET, handleDelete);
+    server.on("/api/update", HTTP_POST, handleApiUpdate);
+    server.on("/doUpload", HTTP_POST, handleUploadDone, handleFileUpload);
+    server.on("/log", HTTP_GET, handleLog);
+    server.on("/reconfigurewifi", HTTP_GET, handleReconfigureWiFi);
+    server.on("/factoryreset", HTTP_GET, handleFactoryReset);
+    server.on("/scan", HTTP_GET, handleScanWifi);
+    server.on("/connect", HTTP_GET, handleConnect);
+
+    // OTA Routes
+    server.on("/update", HTTP_POST, [](){
+        server.send(200, F("text/plain"), (Update.hasError()) ? F("FAIL") : F("OK - Rebooting..."));
+        delay(500);
+        ESP.restart();
+    }, handleOTAUpdate);
+
+    server.on("/update_ota", HTTP_POST, [](){
+        if (!requireAuth()) return;
+        server.send(200, F("text/plain"), (Update.hasError()) ? F("FAIL") : F("OK"));
+        delay(500);
+        ESP.restart();
+    }, handleOTAUpdate);
+
+    // SmartClock Specific Endpoints
     server.on("/scanwifi", HTTP_GET, [](){
         if (!requireAuth()) return;
         handleScanWifi();
@@ -1938,7 +2320,7 @@ void setupWebServer() {
         handleApiDraw();
     });
 
-    // สลับโหมดด้วยมือ /api/mode?to=clock|dashboard|toggle
+    // สลับโหมดด้วยมือ /api/mode?to=clock|dashboard|image|toggle
     server.on("/api/mode", HTTP_GET, [](){
         if (!requireAuth()) return;
         String to = server.hasArg("to") ? server.arg("to") : "toggle";
@@ -1955,21 +2337,20 @@ void setupWebServer() {
             } else {
                 switchToClock();
             }
+        } else if (to == "image") {
+            if (currentImagePath[0] != '\0' && LittleFS.exists(currentImagePath)) {
+                switchToImage(currentImagePath);
+            } else {
+                server.send(409, F("text/plain"), F("no image file available"));
+                return;
+            }
         } else {
-            server.send(400, F("text/plain"), F("to must be clock|dashboard|toggle"));
+            server.send(400, F("text/plain"), F("to must be clock|dashboard|image|toggle"));
             return;
         }
 
-        server.send(200, F("text/plain"), displayMode == MODE_DASHBOARD ? F("dashboard") : F("clock"));
+        server.send(200, F("text/plain"), displayMode == MODE_DASHBOARD ? F("dashboard") : (displayMode == MODE_IMAGE ? F("image") : F("clock")));
     });
-
-    // OTA: ต้องเช็ค auth ทั้งใน upload handler และตอนตอบกลับ
-    server.on("/update_ota", HTTP_POST, [](){
-        if (!requireAuth()) return;
-        server.send(200, F("text/plain"), (Update.hasError()) ? F("FAIL") : F("OK"));
-        delay(500);
-        ESP.restart();
-    }, handleOTAUpdate);
 
     server.on("/restart", HTTP_GET, [](){
         if (!requireAuth()) return;
@@ -1986,9 +2367,6 @@ void setupWebServer() {
 // ---------------------------------------------------------------------------
 // Wi-Fi upkeep — ไม่บล็อก loop() เลย ใช้ millis() คุมจังหวะทั้งหมด
 // ---------------------------------------------------------------------------
-
-static unsigned long wifiLostSince = 0;   // 0 = ยังไม่หลุด
-static unsigned long lastReconnectTry = 0;
 
 void maintainWifi() {
     static unsigned long lastCheck = 0;
@@ -2083,6 +2461,19 @@ void setup() {
     tft.init(240, 240, SPI_MODE3);
     tft.setRotation(2);
 
+    // Initialize TJpg_Decoder
+    TJpgDec.setJpgScale(1);
+    TJpgDec.setSwapBytes(true);
+    TJpgDec.setCallback(tft_output);
+
+    // Initialize LittleFS
+    if (!LittleFS.begin()) {
+        Serial.println(F("LittleFS mount failed, formatting..."));
+        LittleFS.format();
+        LittleFS.begin();
+    }
+    Serial.println(F("LittleFS mounted."));
+
     // Load EEPROM Persistent Config
     loadConfigEEPROM();
 
@@ -2119,10 +2510,20 @@ void setup() {
         drawBootStatus("เปิดโหมด AP", 0);
     }
 
-    // NTP sync สำหรับ ESP8266 - ใช้ TZ string ของไทย UTC+7
-    configTime("ICT-7", "pool.ntp.org", "time.cloudflare.com");
+    // NTP sync สำหรับ ESP8266 โดยใช้ gmtOffset จาก config
+    configTime(sysConfig.gmtOffset, 0, "pool.ntp.org", "time.cloudflare.com");
     setupWebServer();
     server.begin();
+
+    // เริ่มต้น mDNS (smartclock.local) สำหรับ Home Assistant discovery
+    if (MDNS.begin("smartclock")) {
+        MDNS.addService("http", "tcp", 80);
+        MDNS.addServiceTxt("http", "tcp", "model", "SmartClock");
+        MDNS.addServiceTxt("http", "tcp", "vendor", "Custom");
+        MDNS.addServiceTxt("http", "tcp", "api", "geekmagic");
+        MDNS.addServiceTxt("http", "tcp", "version", FW_VERSION);
+        Serial.println(F("mDNS responder started: smartclock.local"));
+    }
 
     Serial.printf_P(PSTR("Web UI protected. user=%s\n"), sysConfig.webUser);
     if (usingDefaultWebPass()) {
@@ -2144,27 +2545,42 @@ void setup() {
 
 void loop() {
     server.handleClient();
+    MDNS.update();
     yield();
 
     maintainWifi();
     updateDataIfDue();
 
-    // มี frame ใหม่ที่ push เข้ามา — วาดที่นี่ ไม่วาดใน HTTP handler
+    // มี frame Dashboard ใหม่ที่ push เข้ามา — วาดที่นี่ ไม่วาดใน HTTP handler
     if (displayMode == MODE_DASHBOARD && dash.dirty) {
         renderDashboard();
     }
 
-    // HA เงียบไปนานเกิน TTL — กลับหน้านาฬิกาเอง ไม่ค้างข้อมูลเก่าไว้บนจอ
+    // Dashboard TTL หมด — กลับหน้านาฬิกาเอง
     if (displayMode == MODE_DASHBOARD && millis() - dash.lastPush >= DASH_TTL_MS) {
         Serial.println(F("Dashboard TTL expired. Back to clock."));
         dash.valid = false;
         switchToClock();
     }
 
+    // Image TTL หมด — กลับหน้านาฬิกาเอง
+    if (displayMode == MODE_IMAGE && millis() - lastImagePush >= IMAGE_TTL_MS) {
+        Serial.println(F("Image TTL expired. Back to clock."));
+        switchToClock();
+    }
+
+    // Live Message TTL หมด — กลับหน้านาฬิกาเอง
+    if (displayMode == MODE_LIVE && millis() - lastLivePush >= LIVE_TTL_MS) {
+        Serial.println(F("Live message TTL expired. Back to clock."));
+        switchToClock();
+    }
+
     static unsigned long lastDisplayUpdate = 0;
     if (millis() - lastDisplayUpdate > 1000) {
         lastDisplayUpdate = millis();
-        updateTimeOnly();
+        if (displayMode == MODE_CLOCK) {
+            updateTimeOnly();
+        }
         updateWifiStatusLCD();
     }
 }
