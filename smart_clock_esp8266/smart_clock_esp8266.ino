@@ -17,7 +17,7 @@
 // (ตัด wrapper เฉพาะ SSD1306 ทิ้ง เอาแต่ core อัลกอริทึมที่ไม่ผูกจอ)
 #include "qrencode.h"
 
-#define FW_VERSION "3.6.0"
+#define FW_VERSION "3.6.1"
 
 // รหัสผ่านหน้าเว็บเริ่มต้น — ตัวเครื่องจะเตือนบนจอและบนหน้าเว็บจนกว่าจะเปลี่ยน
 #define DEFAULT_WEB_USER "admin"
@@ -445,7 +445,7 @@ bool isThaiCombiningMark(uint32_t cp) {
 }
 
 // Scaled Thai renderer with Run-Length Acceleration — scale=1 คือ 8x16, scale=2 คือ 16x32, scale=3 คือ 24x48
-void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color, uint8_t scale) {
+void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color, uint8_t scale, Adafruit_GFX &gfx) {
     if (scale < 1) scale = 1;
     uint8_t cell[THAIFONT_HEIGHT];
     uint8_t glyph[THAIFONT_HEIGHT];
@@ -468,7 +468,7 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
                 if (bits & (0x80 >> col)) {
                     uint8_t startCol = col;
                     while (col < 8 && (bits & (0x80 >> col))) col++;
-                    tft.fillRect(curX + startCol * scale, py, (col - startCol) * scale, scale, color);
+                    gfx.fillRect(curX + startCol * scale, py, (col - startCol) * scale, scale, color);
                 } else {
                     col++;
                 }
@@ -545,15 +545,19 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
     flushCellScaled();
 }
 
+inline void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color, uint8_t scale = 1) {
+    drawThaiStringScaled(x, y, str, color, scale, tft);
+}
+
 // 1x Thai String (wrapper ไปยัง drawThaiStringScaled เพื่อประหยัด Flash)
 inline void drawThaiString(int16_t x, int16_t y, const char* str, uint16_t color, uint16_t bg = ST77XX_BLACK) {
     (void)bg;
-    drawThaiStringScaled(x, y, str, color, 1);
+    drawThaiStringScaled(x, y, str, color, 1, tft);
 }
 
 // Shortcut สำหรับ 2x (16x32 pixels per glyph)
 void drawThaiString2x(int16_t x, int16_t y, const char* str, uint16_t color) {
-    drawThaiStringScaled(x, y, str, color, 2);
+    drawThaiStringScaled(x, y, str, color, 2, tft);
 }
 
 void updateWifiStatusLCD() {
@@ -1953,6 +1957,253 @@ void handleConnect() {
 }
 
 // ---------------------------------------------------------------------------
+// Screen Capture Engine (Banded Virtual Canvas -> BMP Stream)
+// ---------------------------------------------------------------------------
+
+void renderClockBand(GFXcanvas16 &canvas, int16_t bandY, int16_t bandH) {
+    // 1. Wifi Status (y: 0..18)
+    if (bandY < 18) {
+        canvas.setTextSize(1);
+        if (WiFi.status() == WL_CONNECTED) {
+            canvas.setTextColor(ST77XX_GREEN);
+            canvas.setCursor(10, 5 - bandY);
+            canvas.print(F("IP: "));
+            canvas.print(WiFi.localIP());
+        } else if (isAPModeActive) {
+            canvas.setTextColor(ST77XX_ORANGE);
+            canvas.setCursor(10, 5 - bandY);
+            canvas.print(F("AP: 192.168.4.1 (SmartClock)"));
+        } else {
+            canvas.setTextColor(ST77XX_RED);
+            canvas.setCursor(10, 5 - bandY);
+            canvas.print(F("WiFi: Connecting..."));
+        }
+    }
+
+    // 2. Time Area (y: 20..65)
+    if (bandY + bandH > 20 && bandY < 65) {
+        time_t now = time(nullptr);
+        struct tm* t = localtime(&now);
+        if (now > 100000 && t) {
+            char timeStr[16];
+            if (sysConfig.hour12) {
+                int h = t->tm_hour % 12;
+                if (h == 0) h = 12;
+                snprintf(timeStr, sizeof(timeStr), "%02d:%02d", h, t->tm_min);
+            } else {
+                snprintf(timeStr, sizeof(timeStr), "%02d:%02d", t->tm_hour, t->tm_min);
+            }
+            canvas.setTextColor(ST77XX_YELLOW);
+            canvas.setTextSize(4);
+            canvas.setCursor(25, 25 - bandY);
+            canvas.print(timeStr);
+        }
+    }
+
+    // 3. Weather Area (y: 68..140)
+    if (bandY + bandH > 68 && bandY < 140) {
+        drawThaiStringScaled(5, 70 - bandY, sysConfig.city, ST77XX_CYAN, 2, canvas);
+        if (weather.valid) {
+            float shown = sysConfig.celsius ? weather.tempC : (weather.tempC * 9.0f / 5.0f + 32.0f);
+            char line[48];
+            snprintf(line, sizeof(line), "%s %.0f%s",
+                     weatherCodeToThai(weather.code), shown,
+                     sysConfig.celsius ? "°C" : "°F");
+            drawThaiStringScaled(5, 106 - bandY, line, ST77XX_GREEN, 2, canvas);
+        } else {
+            drawThaiStringScaled(5, 106 - bandY, "รออากาศ...", ST77XX_ORANGE, 2, canvas);
+        }
+    }
+
+    // 4. Gold Area (y: 155..235)
+    if (bandY + bandH > 155 && bandY < 235) {
+        canvas.drawRect(10, 160 - bandY, 220, 70, ST77XX_ORANGE);
+        drawThaiStringScaled(18, 165 - bandY, "ราคาทองคำ XAU/USD", ST77XX_ORANGE, 1, canvas);
+        if (gold.valid) {
+            uint16_t color = ST77XX_WHITE;
+            if (gold.prevPrice > 0.0f) {
+                if (gold.price > gold.prevPrice)      color = ST77XX_GREEN;
+                else if (gold.price < gold.prevPrice) color = ST77XX_RED;
+            }
+            char priceStr[16];
+            snprintf(priceStr, sizeof(priceStr), "$%.2f", gold.price);
+            canvas.setTextColor(color);
+            canvas.setTextSize(3);
+            canvas.setCursor(20, 192 - bandY);
+            canvas.print(priceStr);
+        } else {
+            canvas.setTextColor(ST77XX_ORANGE);
+            canvas.setTextSize(2);
+            canvas.setCursor(20, 196 - bandY);
+            canvas.print(F("Loading..."));
+        }
+    }
+}
+
+void renderLiveBand(GFXcanvas16 &canvas, int16_t bandY, int16_t bandH) {
+    if (bandY + bandH > 30 && bandY < 60) {
+        canvas.setTextSize(2);
+        canvas.setTextColor(ST77XX_WHITE);
+        canvas.setCursor(10, 30 - bandY);
+        canvas.println(liveLine1);
+    }
+    if (liveLine2[0] != '\0' && bandY + bandH > 70 && bandY < 100) {
+        canvas.setTextSize(2);
+        canvas.setTextColor(ST77XX_CYAN);
+        canvas.setCursor(10, 70 - bandY);
+        canvas.println(liveLine2);
+    }
+}
+
+void renderDashboardBand(GFXcanvas16 &canvas, int16_t bandY, int16_t bandH) {
+    for (uint8_t i = 0; i < dash.widgetCount; i++) {
+        const Widget &g = dash.widgets[i];
+        switch (g.type) {
+            case W_TEXT:
+                if (g.text[0]) {
+                    drawThaiStringScaled(g.x, g.y - bandY, g.text, g.color, g.scale, canvas);
+                }
+                break;
+            case W_RECT:
+                if (g.filled) canvas.fillRect(g.x, g.y - bandY, g.w, g.h, g.color);
+                else          canvas.drawRect(g.x, g.y - bandY, g.w, g.h, g.color);
+                break;
+            case W_HLINE:
+                canvas.drawFastHLine(g.x, g.y - bandY, g.w, g.color);
+                break;
+            case W_VLINE:
+                canvas.drawFastVLine(g.x, g.y - bandY, g.h, g.color);
+                break;
+            case W_KPI:
+                if (g.text[0]) {
+                    canvas.setTextSize(1);
+                    canvas.setTextColor(DASH_MUTED_COLOR);
+                    canvas.setCursor(g.x, g.y - bandY);
+                    canvas.print(g.text);
+                }
+                if (g.label[0]) {
+                    canvas.setTextSize(2);
+                    canvas.setTextColor(g.color);
+                    canvas.setCursor(g.x, g.y + 14 - bandY);
+                    canvas.print(g.label);
+                }
+                break;
+            case W_GAUGE:
+                canvas.drawRect(g.x, g.y - bandY, g.w, g.h, DASH_GRID_COLOR);
+                if (g.count > 0) {
+                    float v = wval(g, 0);
+                    float lo = g.vmin, hi = g.vmax;
+                    if (hi - lo < 0.0001f) { lo = 0.0f; hi = 100.0f; }
+                    float frac = (v - lo) / (hi - lo);
+                    if (frac < 0.0f) frac = 0.0f;
+                    if (frac > 1.0f) frac = 1.0f;
+                    int16_t fillW = (int16_t)(frac * (g.w - 2));
+                    if (fillW > 0) canvas.fillRect(g.x + 1, g.y + 1 - bandY, fillW, g.h - 2, g.color);
+                }
+                break;
+            case W_LINE:
+                if (g.count > 1) {
+                    float lo, hi;
+                    widgetRange(g, lo, hi, 1);
+                    float span = hi - lo;
+                    int16_t prevX = 0, prevY = 0;
+                    for (uint8_t k = 0; k < g.count; k++) {
+                        float v = wval(g, k);
+                        float frac = (v - lo) / span;
+                        int16_t px = g.x + (k * (g.w - 1)) / (g.count - 1);
+                        int16_t py = g.y + g.h - 1 - (int16_t)(frac * (g.h - 1));
+                        if (k > 0) {
+                            canvas.drawLine(prevX, prevY - bandY, px, py - bandY, g.color);
+                        }
+                        prevX = px; prevY = py;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+void handleScreenshot() {
+    // โหมดรูปภาพ: ส่งไฟล์ JPEG ต้นฉบับจาก LittleFS ตรงๆ
+    if (displayMode == MODE_IMAGE && currentImagePath[0] != '\0' && LittleFS.exists(currentImagePath)) {
+        File f = LittleFS.open(currentImagePath, "r");
+        if (f) {
+            server.streamFile(f, "image/jpeg");
+            f.close();
+            return;
+        }
+    }
+
+    if (ESP.getFreeHeap() < 16000) {
+        server.send(503, F("text/plain"), F("Heap too low for screenshot"));
+        return;
+    }
+
+    WiFiClient client = server.client();
+    client.print(F("HTTP/1.1 200 OK\r\n"));
+    client.print(F("Content-Type: image/bmp\r\n"));
+    client.print(F("Content-Disposition: inline; filename=\"screenshot.bmp\"\r\n"));
+    client.print(F("Content-Length: 172854\r\n"));
+    client.print(F("Connection: close\r\n\r\n"));
+
+    // BMP Header (240x240 24-bit RGB)
+    const uint8_t bmpHeader[54] = {
+        0x42, 0x4D,             // 'BM'
+        0x36, 0x84, 0x03, 0x00, // File size = 172,854 bytes
+        0x00, 0x00, 0x00, 0x00, // Reserved
+        0x36, 0x00, 0x00, 0x00, // Data offset = 54
+        0x28, 0x00, 0x00, 0x00, // Header size = 40
+        0xF0, 0x00, 0x00, 0x00, // Width = 240
+        0xF0, 0x00, 0x00, 0x00, // Height = 240
+        0x01, 0x00,             // Planes = 1
+        0x18, 0x00,             // Bits per pixel = 24
+        0x00, 0x00, 0x00, 0x00, // Compression = 0
+        0x00, 0x84, 0x03, 0x00, // Image size = 172,800
+        0x13, 0x0B, 0x00, 0x00, // X pixels/m
+        0x13, 0x0B, 0x00, 0x00, // Y pixels/m
+        0x00, 0x00, 0x00, 0x00, // Total colors
+        0x00, 0x00, 0x00, 0x00  // Important colors
+    };
+    client.write(bmpHeader, sizeof(bmpHeader));
+
+    const int16_t BAND_H = 24;
+    GFXcanvas16 canvas(240, BAND_H);
+    uint8_t rowBuf[240 * 3]; // 720 bytes row buffer
+
+    // BMP บันทึกจากล่างขึ้นบน: band 9 (Y=216..239) ถึง band 0 (Y=0..23)
+    for (int8_t b = 9; b >= 0; b--) {
+        yield();
+        int16_t bandY = b * BAND_H;
+        canvas.fillScreen(ST77XX_BLACK);
+
+        if (displayMode == MODE_DASHBOARD) {
+            renderDashboardBand(canvas, bandY, BAND_H);
+        } else if (displayMode == MODE_LIVE) {
+            renderLiveBand(canvas, bandY, BAND_H);
+        } else {
+            renderClockBand(canvas, bandY, BAND_H);
+        }
+
+        // แปลงพิกเซลใน canvas จากแถวล่างขึ้นบนของแต่ละแถบ
+        for (int16_t r = BAND_H - 1; r >= 0; r--) {
+            uint16_t* p565 = canvas.getBuffer() + (r * 240);
+            for (int16_t c = 0; c < 240; c++) {
+                uint16_t rgb = p565[c];
+                uint8_t red   = (rgb >> 11) & 0x1F;
+                uint8_t green = (rgb >> 5)  & 0x3F;
+                uint8_t blue  = rgb & 0x1F;
+                rowBuf[c * 3 + 0] = (blue << 3) | (blue >> 2);
+                rowBuf[c * 3 + 1] = (green << 2) | (green >> 4);
+                rowBuf[c * 3 + 2] = (red << 3) | (red >> 2);
+            }
+            client.write(rowBuf, sizeof(rowBuf));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/draw — รับ JSON template แล้วแปลงเป็น display list ใน RAM
 // ไม่วาดในนี้ แค่ตั้งธง dirty ให้ loop() วาด เพื่อตอบ HTTP กลับให้เร็ว
 // ---------------------------------------------------------------------------
@@ -2280,6 +2531,8 @@ void setupWebServer() {
     server.on("/factoryreset", HTTP_GET, handleFactoryReset);
     server.on("/scan", HTTP_GET, handleScanWifi);
     server.on("/connect", HTTP_GET, handleConnect);
+    server.on("/api/screenshot", HTTP_GET, handleScreenshot);
+    server.on("/screen.bmp", HTTP_GET, handleScreenshot);
 
     // OTA Routes
     server.on("/update", HTTP_POST, [](){
