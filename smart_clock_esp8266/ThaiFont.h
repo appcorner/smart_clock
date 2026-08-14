@@ -20,7 +20,7 @@
 
 #define THAIFONT_TONES_HEIGHT 3
 
-typedef struct { uint32_t codepoint; uint32_t offset; } BitmapGlyphIndex;
+typedef struct { uint16_t codepoint; uint16_t offset; } BitmapGlyphIndex;
 
 const uint8_t ThaiFontBitmap[] PROGMEM = {
   0x00, 0x00, 0x00, 0x00, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x00, 0xC0, 0xC0, 0x00, 0x00,  // U+0021 "!"

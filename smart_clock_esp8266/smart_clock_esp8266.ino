@@ -220,7 +220,7 @@ void saveConfigEEPROM() {
     EEPROM.put(0, sysConfig);
     EEPROM.commit();
     EEPROM.end();
-    Serial.println("Config Saved to EEPROM!");
+    Serial.println(F("Config Saved to EEPROM!"));
 }
 
 // อ่าน config จาก EEPROM พร้อม migration chain 0xAB -> 0xAC -> 0xAD
@@ -241,8 +241,8 @@ void loadConfigEEPROM() {
             sysConfig.webUser[sizeof(sysConfig.webUser) - 1] = '\0';
             sysConfig.webPass[sizeof(sysConfig.webPass) - 1] = '\0';
             EEPROM.end();
-            Serial.println("Loaded Config from EEPROM (0xAD).");
-            Serial.printf("SSID: %s  lat=%.4f lon=%.4f\n", sysConfig.ssid, sysConfig.lat, sysConfig.lon);
+            Serial.println(F("Loaded Config from EEPROM (0xAD)."));
+            Serial.printf_P(PSTR("SSID: %s  lat=%.4f lon=%.4f\n"), sysConfig.ssid, sysConfig.lat, sysConfig.lon);
             return;
         }
     }
@@ -270,7 +270,7 @@ void loadConfigEEPROM() {
             sysConfig.lon = 0.0f;
 
             EEPROM.end();
-            Serial.println("Migrated config 0xAC -> 0xAD (will geocode city).");
+            Serial.println(F("Migrated config 0xAC -> 0xAD (will geocode city)."));
             saveConfigEEPROM();
             return;
         }
@@ -294,302 +294,29 @@ void loadConfigEEPROM() {
             // webUser/webPass คงค่าเริ่มต้นไว้ ผู้ใช้ต้องตั้งรหัสใหม่เอง
 
             EEPROM.end();
-            Serial.println("Migrated config 0xAB -> 0xAD (web password reset to default).");
+            Serial.println(F("Migrated config 0xAB -> 0xAD (web password reset to default)."));
             saveConfigEEPROM();
             return;
         }
     }
 
     EEPROM.end();
-    Serial.println("No EEPROM Config found, using defaults.");
+    Serial.println(F("No EEPROM Config found, using defaults."));
 }
 
 // Embedded Smart Web UI HTML in PROGMEM
-const char INDEX_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Clock Pro</title>
-    <style>
-        body { background: #0a0c10; color: #f3f4f6; font-family: sans-serif; padding: 15px; text-align: center; margin: 0; }
-        .card { background: rgba(22,27,34,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; margin: 10px auto; max-width: 420px; }
-        h1 { color: #3b82f6; font-size: 20px; margin: 0 0 4px 0; }
-        h3 { color: #93c5fd; margin: 0 0 10px 0; font-size: 15px; }
-        input, select { width: 100%; padding: 10px; margin: 5px 0; border-radius: 8px; border: 1px solid #374151; background: #1f2937; color: white; box-sizing: border-box; font-size: 14px; }
-        button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; font-size: 14px; }
-        .btn-blue { background: #3b82f6; color: white; }
-        .row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 5px 2px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-        .k { color: #9ca3af; }
-        .v { color: #f3f4f6; font-weight: bold; }
-        .v.old { color: #f59e0b; }
-        .v.up { color: #10b981; }
-        .v.down { color: #ef4444; }
-        .btn-green { background: #10b981; color: white; }
-        .btn-yellow { background: #f59e0b; color: black; }
-        .status { font-size: 13px; padding: 6px 10px; border-radius: 6px; margin: 4px 0; }
-        .ok { background: #065f46; color: #6ee7b7; }
-        .info { background: #1e3a5f; color: #93c5fd; }
-        .warn { background: #7c2d12; color: #fdba74; border: 1px solid #ea580c; }
-        label { display: block; text-align: left; font-size: 13px; color: #9ca3af; margin-top: 8px; }
-        .btn-red { background: #dc2626; color: white; }
-        .hint { font-size: 12px; color: #6b7280; text-align: left; margin: 6px 0 0 0; }
-        .ver { font-size: 11px; color: #4b5563; margin-top: 2px; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>⏰ Smart Clock Pro</h1>
-        <p id="wifiStatus" class="status info">กำลังโหลด...</p>
-        <p id="ver" class="ver"></p>
-    </div>
-
-    <div id="passWarnCard" class="card" style="display:none">
-        <p class="status warn">
-            ⚠️ ยังใช้รหัสผ่านเริ่มต้นอยู่ ใครที่อยู่ในวง Wi-Fi เดียวกันก็เข้ามาแก้ค่าหรือเขียนเฟิร์มแวร์ทับได้ กรุณาตั้งรหัสใหม่ที่การ์ดด้านล่าง
-        </p>
-    </div>
-
-    <div class="card">
-        <h3>📊 ข้อมูลสดบนจอ</h3>
-        <div class="row">
-            <span class="k">อากาศ</span>
-            <span><span id="wxVal" class="v">-</span><span id="wxDot" class="dot none"></span></span>
-        </div>
-        <div class="row">
-            <span class="k">ราคาทอง XAU/USD</span>
-            <span><span id="goldVal" class="v">-</span><span id="goldDot" class="dot none"></span></span>
-        </div>
-        <p id="dataMeta" class="hint"></p>
-        <button id="refreshBtn" class="btn-green" onclick="doRefresh()">🔄 ดึงข้อมูลใหม่ตอนนี้</button>
-        <p class="hint">ปกติอากาศดึงใหม่ทุก 10 นาที ทองทุก 5 นาที ถ้าดึงไม่สำเร็จจะลองใหม่ทุก 1 นาที และคงค่าเดิมไว้บนจอพร้อมจุดเหลืองเตือน</p>
-    </div>
-
-    <div class="card">
-        <h3>📶 ตั้งค่า Wi-Fi</h3>
-        <button class="btn-green" onclick="scanWifi()">🔍 สแกนหา Wi-Fi</button>
-        <select id="wifi_list"><option value="">กดสแกนก่อน...</option></select>
-        <label>รหัสผ่าน Wi-Fi</label>
-        <input type="password" id="pass" placeholder="รหัสผ่าน">
-        <button class="btn-blue" onclick="saveWifi()">💾 บันทึกและรีสตาร์ท</button>
-    </div>
-
-    <div class="card">
-        <h3>🌤️ ตั้งค่าเมือง</h3>
-        <label>ชื่อเมือง (ภาษาอังกฤษ)</label>
-        <input type="text" id="city" placeholder="เช่น Bangkok">
-        <button id="cityBtn" class="btn-blue" onclick="saveCity()">💾 บันทึกเมือง</button>
-    </div>
-
-    <div class="card">
-        <h3>💡 ความสว่างหน้าจอ</h3>
-        <input type="range" id="brightness" min="5" max="100" value="80"
-               oninput="document.getElementById('brightnessVal').innerText = this.value + '%'"
-               onchange="saveBrightness(this.value)">
-        <p class="hint">ระดับปัจจุบัน: <span id="brightnessVal">80%</span> — ตอนโชว์ QR เครื่องจะหรี่ลงเองชั่วคราวให้กล้องมือถือโฟกัสง่ายขึ้น แล้วคืนค่านี้ตอนกลับหน้านาฬิกา</p>
-    </div>
-
-    <div class="card">
-        <h3>🔒 รหัสผ่านหน้าเว็บ</h3>
-        <label>ชื่อผู้ใช้</label>
-        <input type="text" id="web_user" placeholder="admin" autocomplete="username">
-        <label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label>
-        <input type="password" id="web_pass" placeholder="รหัสผ่านใหม่" autocomplete="new-password">
-        <label>ยืนยันรหัสผ่านใหม่</label>
-        <input type="password" id="web_pass2" placeholder="พิมพ์ซ้ำอีกครั้ง" autocomplete="new-password">
-        <button class="btn-red" onclick="saveAuth()">🔐 บันทึกรหัสผ่าน</button>
-        <p class="hint">หลังบันทึก เบราว์เซอร์จะถามรหัสใหม่ในการเข้าครั้งถัดไป ถ้าลืมรหัสต้องล้าง EEPROM ด้วยการแฟลชผ่านสาย</p>
-    </div>
-
-    <div class="card">
-        <h3>🚀 อัปเดต Firmware (OTA)</h3>
-        <form method="POST" action="/update_ota" enctype="multipart/form-data">
-            <input type="file" name="update" accept=".bin">
-            <button type="submit" class="btn-yellow">⚡ อัปโหลด .bin</button>
-        </form>
-    </div>
-
-    <script>
-        // โหลดค่าปัจจุบันจากเครื่องตอนเปิดหน้าเว็บ
-        window.onload = function() {
-            fetch('/config')
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('city').value = d.city || '';
-                    document.getElementById('web_user').value = d.web_user || 'admin';
-                    document.getElementById('ver').innerText = 'Firmware v' + (d.version || '-');
-                    if (typeof d.brightness !== 'undefined') {
-                        document.getElementById('brightness').value = d.brightness;
-                        document.getElementById('brightnessVal').innerText = d.brightness + '%';
-                    }
-                    let ws = document.getElementById('wifiStatus');
-                    ws.innerText = 'เชื่อมต่อ Wi-Fi: ' + (d.ssid || '-');
-                    ws.className = 'status ok';
-                    // โชว์แบนเนอร์เตือนเฉพาะตอนที่ยังไม่เปลี่ยนรหัสเริ่มต้น
-                    if (d.default_pass) {
-                        document.getElementById('passWarnCard').style.display = 'block';
-                    }
-                    renderData(d);
-                })
-                .catch(() => {
-                    document.getElementById('wifiStatus').innerText = 'ไม่สามารถโหลดข้อมูลได้';
-                });
-        };
-
-        function scanWifi() {
-            let sel = document.getElementById('wifi_list');
-            sel.innerHTML = '<option>กำลังสแกน...</option>';
-            fetch('/scanwifi')
-                .then(r => r.json())
-                .then(data => {
-                    sel.innerHTML = '';
-                    if (!data.length) { sel.innerHTML = '<option>ไม่พบ Wi-Fi</option>'; return; }
-                    data.sort((a,b) => b.rssi - a.rssi);
-                    data.forEach(item => {
-                        let o = document.createElement('option');
-                        o.value = item.ssid;
-                        o.innerText = item.ssid + '  (' + item.rssi + ' dBm)';
-                        sel.appendChild(o);
-                    });
-                })
-                .catch(() => alert('สแกนไม่สำเร็จ'));
-        }
-
-        function saveAuth() {
-            let u = document.getElementById('web_user').value.trim();
-            let p = document.getElementById('web_pass').value;
-            let p2 = document.getElementById('web_pass2').value;
-            if (!u) { alert('กรุณากรอกชื่อผู้ใช้'); return; }
-            if (p.length < 8) { alert('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร'); return; }
-            if (p !== p2) { alert('รหัสผ่านสองช่องไม่ตรงกัน'); return; }
-
-            fetch('/api/set?key=web_user&value=' + encodeURIComponent(u))
-                .then(r => {
-                    if (!r.ok) throw new Error('ตั้งชื่อผู้ใช้ไม่สำเร็จ');
-                    return fetch('/api/set?key=web_pass&value=' + encodeURIComponent(p));
-                })
-                .then(r => {
-                    if (!r.ok) throw new Error('ตั้งรหัสผ่านไม่สำเร็จ');
-                    alert('บันทึกรหัสผ่านใหม่แล้ว ครั้งถัดไปที่เปิดหน้านี้เบราว์เซอร์จะถามรหัสใหม่');
-                    document.getElementById('web_pass').value = '';
-                    document.getElementById('web_pass2').value = '';
-                    document.getElementById('passWarnCard').style.display = 'none';
-                })
-                .catch(e => alert(e.message));
-        }
-
-        // วาดข้อมูลสดจาก /config ลงการ์ดด้านบน
-        function renderData(d) {
-            let w = d.weather || {};
-            let wEl = document.getElementById('wxVal');
-            let wDot = document.getElementById('wxDot');
-            if (w.valid) {
-                wEl.innerText = w.temp_c + '°C  ' + (w.desc || '');
-                wDot.className = w.stale ? 'dot stale' : 'dot fresh';
-                wDot.title = w.stale ? 'ข้อมูลเก่า ดึงใหม่ไม่สำเร็จ' : 'ข้อมูลสด';
-            } else {
-                wEl.innerText = 'ยังไม่มีข้อมูล';
-                wDot.className = 'dot none';
-                wDot.title = 'ยังดึงไม่สำเร็จเลย';
-            }
-
-            let g = d.gold || {};
-            let gEl = document.getElementById('goldVal');
-            let gDot = document.getElementById('goldDot');
-            if (g.valid) {
-                gEl.innerText = '$' + g.price;
-                // สีบอกทิศทางเทียบราคาครั้งก่อน เหมือนที่แสดงบนจอ
-                if (g.prev > 0 && g.price > g.prev) gEl.style.color = '#10b981';
-                else if (g.prev > 0 && g.price < g.prev) gEl.style.color = '#ef4444';
-                else gEl.style.color = '#f3f4f6';
-                gDot.className = g.stale ? 'dot stale' : 'dot fresh';
-                gDot.title = g.stale ? 'ข้อมูลเก่า ดึงใหม่ไม่สำเร็จ' : 'ข้อมูลสด';
-            } else {
-                gEl.innerText = 'ยังไม่มีข้อมูล';
-                gEl.style.color = '#9ca3af';
-                gDot.className = 'dot none';
-                gDot.title = 'ยังดึงไม่สำเร็จเลย';
-            }
-
-            let meta = [];
-            if (d.lat || d.lon) meta.push('พิกัด ' + d.lat + ', ' + d.lon);
-            if (d.heap) meta.push('heap ' + d.heap + ' bytes');
-            document.getElementById('dataMeta').innerText = meta.join('  •  ');
-        }
-
-        function reloadData() {
-            return fetch('/config').then(r => r.json()).then(renderData);
-        }
-
-        // สั่งให้เครื่องดึงข้อมูลใหม่ทันที ไม่ต้องรอรอบถัดไป
-        function doRefresh() {
-            let btn = document.getElementById('refreshBtn');
-            btn.disabled = true;
-            btn.innerText = '⏳ กำลังดึง...';
-            fetch('/refresh')
-                .then(r => r.json())
-                .then(() => reloadData())
-                .catch(() => alert('ดึงข้อมูลไม่สำเร็จ'))
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.innerText = '🔄 ดึงข้อมูลใหม่ตอนนี้';
-                });
-        }
-
-        // ฟังก์ชันนี้เคยหายไปตั้งแต่ v2.x ปุ่มบันทึกเมืองจึงกดไม่ทำงานมาตลอด
-        function saveCity() {
-            let c = document.getElementById('city').value.trim();
-            if (!c) { alert('กรุณากรอกชื่อเมือง'); return; }
-            let btn = document.getElementById('cityBtn');
-            btn.disabled = true;
-            btn.innerText = '⏳ กำลังค้นหาเมือง...';
-            fetch('/api/set?key=city&value=' + encodeURIComponent(c))
-                .then(r => r.text().then(t => ({ok: r.ok, text: t})))
-                .then(res => {
-                    if (!res.ok) throw new Error(res.text);
-                    // เครื่อง geocode แล้วดึงอากาศให้ทันที ถ้าไม่สำเร็จจะบอกมาในข้อความ
-                    if (res.text !== 'OK') alert('บันทึกเมืองแล้ว แต่ยังดึงอากาศไม่ได้: ' + res.text);
-                    else alert('บันทึกเมือง "' + c + '" แล้ว');
-                    return reloadData();
-                })
-                .catch(e => alert('บันทึกเมืองไม่สำเร็จ: ' + e.message))
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.innerText = '💾 บันทึกเมือง';
-                });
-        }
-
-        function saveWifi() {
-            let s = document.getElementById('wifi_list').value;
-            let p = document.getElementById('pass').value;
-            if (!s) { alert('กรุณาเลือก Wi-Fi ก่อน'); return; }
-            fetch('/api/set?key=wifi_ssid&value=' + encodeURIComponent(s))
-                .then(() => fetch('/api/set?key=wifi_pass&value=' + encodeURIComponent(p)))
-                .then(() => {
-                    alert('บันทึกข้อมูล Wi-Fi ลง EEPROM เรียบร้อย! เครื่องกำลังรีบูตเพื่อเชื่อมต่อ...');
-                    setTimeout(() => fetch('/restart'), 500);
-                });
-        }
-
-        // ลากแถบเสร็จแล้วค่อยยิง (onchange ไม่ใช่ oninput) กันสแปมคำสั่งไปเครื่องทุกพิกเซลที่ลาก
-        function saveBrightness(v) {
-            fetch('/api/set?key=lcd_brightness&value=' + encodeURIComponent(v))
-                .catch(() => alert('ตั้งความสว่างไม่สำเร็จ'));
-        }
-    </script>
-</body>
-</html>
-)rawliteral";
+const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Smart Clock Pro</title><style>body{background:#0a0c10;color:#f3f4f6;font-family:sans-serif;padding:15px;text-align:center;margin:0}.card{background:rgba(22,27,34,0.85);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;margin:10px auto;max-width:420px}h1{color:#3b82f6;font-size:20px;margin:0 0 4px 0}h3{color:#93c5fd;margin:0 0 10px 0;font-size:15px}input,select{width:100%;padding:10px;margin:5px 0;border-radius:8px;border:1px solid #374151;background:#1f2937;color:#fff;box-sizing:border-box;font-size:14px}button{width:100%;padding:10px;margin:5px 0;border-radius:8px;border:none;font-weight:700;cursor:pointer;font-size:14px}.btn-blue{background:#3b82f6;color:#fff}.row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,0.06)}.k{color:#9ca3af}.v{color:#f3f4f6;font-weight:700}.v.old{color:#f59e0b}.v.up{color:#10b981}.v.down{color:#ef4444}.btn-green{background:#10b981;color:#fff}.btn-yellow{background:#f59e0b;color:#000}.status{font-size:13px;padding:6px 10px;border-radius:6px;margin:4px 0}.ok{background:#065f46;color:#6ee7b7}.info{background:#1e3a5f;color:#93c5fd}.warn{background:#7c2d12;color:#fdba74;border:1px solid #ea580c}label{display:block;text-align:left;font-size:13px;color:#9ca3af;margin-top:8px}.btn-red{background:#dc2626;color:#fff}.hint{font-size:12px;color:#6b7280;text-align:left;margin:6px 0 0 0}.ver{font-size:11px;color:#4b5563;margin-top:2px}</style></head><body><div class="card"><h1>⏰ Smart Clock Pro</h1><p id="wifiStatus" class="status info">กำลังโหลด...</p><p id="ver" class="ver"></p></div><div id="passWarnCard" class="card" style="display:none"><p class="status warn">⚠️ ยังใช้รหัสผ่านเริ่มต้นอยู่ ใครที่อยู่ในวง Wi-Fi เดียวกันก็เข้ามาแก้ค่าหรือเขียนเฟิร์มแวร์ทับได้ กรุณาตั้งรหัสใหม่ที่การ์ดด้านล่าง</p></div><div class="card"><h3>📊 ข้อมูลสดบนจอ</h3><div class="row"><span class="k">อากาศ</span><span><span id="wxVal" class="v">-</span><span id="wxDot" class="dot none"></span></span></div><div class="row"><span class="k">ราคาทอง XAU/USD</span><span><span id="goldVal" class="v">-</span><span id="goldDot" class="dot none"></span></span></div><p id="dataMeta" class="hint"></p><button id="refreshBtn" class="btn-green" onclick="doRefresh()">🔄 ดึงข้อมูลใหม่ตอนนี้</button><p class="hint">ปกติอากาศดึงใหม่ทุก 10 นาที ทองทุก 5 นาที ถ้าดึงไม่สำเร็จจะลองใหม่ทุก 1 นาที และคงค่าเดิมไว้บนจอพร้อมจุดเหลืองเตือน</p></div><div class="card"><h3>📶 ตั้งค่า Wi-Fi</h3><button class="btn-green" onclick="scanWifi()">🔍 สแกนหา Wi-Fi</button><select id="wifi_list"><option value="">กดสแกนก่อน...</option></select><label>รหัสผ่าน Wi-Fi</label><input type="password" id="pass" placeholder="รหัสผ่าน"><button class="btn-blue" onclick="saveWifi()">💾 บันทึกและรีสตาร์ท</button></div><div class="card"><h3>🌤️ ตั้งค่าเมือง</h3><label>ชื่อเมือง (ภาษาอังกฤษ)</label><input type="text" id="city" placeholder="เช่น Bangkok"><button id="cityBtn" class="btn-blue" onclick="saveCity()">💾 บันทึกเมือง</button></div><div class="card"><h3>💡 ความสว่างหน้าจอ</h3><input type="range" id="brightness" min="5" max="100" value="80" oninput="document.getElementById('brightnessVal').innerText=this.value+'%'" onchange="saveBrightness(this.value)"><p class="hint">ระดับปัจจุบัน: <span id="brightnessVal">80%</span> — ตอนโชว์ QR เครื่องจะหรี่ลงเองชั่วคราวให้กล้องมือถือโฟกัสง่ายขึ้น แล้วคืนค่านี้ตอนกลับหน้านาฬิกา</p></div><div class="card"><h3>🔒 รหัสผ่านหน้าเว็บ</h3><label>ชื่อผู้ใช้</label><input type="text" id="web_user" placeholder="admin" autocomplete="username"><label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label><input type="password" id="web_pass" placeholder="รหัสผ่านใหม่" autocomplete="new-password"><label>ยืนยันรหัสผ่านใหม่</label><input type="password" id="web_pass2" placeholder="พิมพ์ซ้ำอีกครั้ง" autocomplete="new-password"><button class="btn-red" onclick="saveAuth()">🔐 บันทึกรหัสผ่าน</button><p class="hint">หลังบันทึก เบราว์เซอร์จะถามรหัสใหม่ในการเข้าครั้งถัดไป ถ้าลืมรหัสต้องล้าง EEPROM ด้วยการแฟลชผ่านสาย</p></div><div class="card"><h3>🚀 อัปเดต Firmware (OTA)</h3><form method="POST" action="/update_ota" enctype="multipart/form-data"><input type="file" name="update" accept=".bin"><button type="submit" class="btn-yellow">⚡ อัปโหลด .bin</button></form></div><script>window.onload=function(){fetch('/config').then(r=>r.json()).then(d=>{document.getElementById('city').value=d.city||'';document.getElementById('web_user').value=d.web_user||'admin';document.getElementById('ver').innerText='Firmware v'+(d.version||'-');if(typeof d.brightness!=='undefined'){document.getElementById('brightness').value=d.brightness;document.getElementById('brightnessVal').innerText=d.brightness+'%';}let ws=document.getElementById('wifiStatus');ws.innerText='เชื่อมต่อ Wi-Fi: '+(d.ssid||'-');ws.className='status ok';if(d.default_pass){document.getElementById('passWarnCard').style.display='block';}renderData(d);}).catch(()=>{document.getElementById('wifiStatus').innerText='ไม่สามารถโหลดข้อมูลได้';});};function scanWifi(){let sel=document.getElementById('wifi_list');sel.innerHTML='<option>กำลังสแกน...</option>';fetch('/scanwifi').then(r=>r.json()).then(data=>{sel.innerHTML='';if(!data.length){sel.innerHTML='<option>ไม่พบ Wi-Fi</option>';return;}data.sort((a,b)=>b.rssi-a.rssi);data.forEach(item=>{let o=document.createElement('option');o.value=item.ssid;o.innerText=item.ssid+'  ('+item.rssi+' dBm)';sel.appendChild(o);});}).catch(()=>alert('สแกนไม่สำเร็จ'));}function saveAuth(){let u=document.getElementById('web_user').value.trim(),p=document.getElementById('web_pass').value,p2=document.getElementById('web_pass2').value;if(!u){alert('กรุณากรอกชื่อผู้ใช้');return;}if(p.length<8){alert('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');return;}if(p!==p2){alert('รหัสผ่านสองช่องไม่ตรงกัน');return;}fetch('/api/set?key=web_user&value='+encodeURIComponent(u)).then(r=>{if(!r.ok)throw new Error('ตั้งชื่อผู้ใช้ไม่สำเร็จ');return fetch('/api/set?key=web_pass&value='+encodeURIComponent(p));}).then(r=>{if(!r.ok)throw new Error('ตั้งรหัสผ่านไม่สำเร็จ');alert('บันทึกรหัสผ่านใหม่แล้ว ครั้งถัดไปที่เปิดหน้านี้เบราว์เซอร์จะถามรหัสใหม่');document.getElementById('web_pass').value='';document.getElementById('web_pass2').value='';document.getElementById('passWarnCard').style.display='none';}).catch(e=>alert(e.message));}function renderData(d){let w=d.weather||{},wEl=document.getElementById('wxVal'),wDot=document.getElementById('wxDot');if(w.valid){wEl.innerText=w.temp_c+'°C  '+(w.desc||'');wDot.className=w.stale?'dot stale':'dot fresh';wDot.title=w.stale?'ข้อมูลเก่า ดึงใหม่ไม่สำเร็จ':'ข้อมูลสด';}else{wEl.innerText='ยังไม่มีข้อมูล';wDot.className='dot none';wDot.title='ยังดึงไม่สำเร็จเลย';}let g=d.gold||{},gEl=document.getElementById('goldVal'),gDot=document.getElementById('goldDot');if(g.valid){gEl.innerText='$'+g.price;if(g.prev>0&&g.price>g.prev)gEl.style.color='#10b981';else if(g.prev>0&&g.price<g.prev)gEl.style.color='#ef4444';else gEl.style.color='#f3f4f6';gDot.className=g.stale?'dot stale':'dot fresh';gDot.title=g.stale?'ข้อมูลเก่า ดึงใหม่ไม่สำเร็จ':'ข้อมูลสด';}else{gEl.innerText='ยังไม่มีข้อมูล';gEl.style.color='#9ca3af';gDot.className='dot none';gDot.title='ยังดึงไม่สำเร็จเลย';}let meta=[];if(d.lat||d.lon)meta.push('พิกัด '+d.lat+', '+d.lon);if(d.heap)meta.push('heap '+d.heap+' bytes');document.getElementById('dataMeta').innerText=meta.join('  •  ');}function reloadData(){return fetch('/config').then(r=>r.json()).then(renderData);}function doRefresh(){let btn=document.getElementById('refreshBtn');btn.disabled=true;btn.innerText='⏳ กำลังดึง...';fetch('/refresh').then(r=>r.json()).then(()=>reloadData()).catch(()=>alert('ดึงข้อมูลไม่สำเร็จ')).finally(()=>{btn.disabled=false;btn.innerText='🔄 ดึงข้อมูลใหม่ตอนนี้';});}function saveCity(){let c=document.getElementById('city').value.trim();if(!c){alert('กรุณากรอกชื่อเมือง');return;}let btn=document.getElementById('cityBtn');btn.disabled=true;btn.innerText='⏳ กำลังค้นหาเมือง...';fetch('/api/set?key=city&value='+encodeURIComponent(c)).then(r=>r.text().then(t=>({ok:r.ok,text:t}))).then(res=>{if(!res.ok)throw new Error(res.text);if(res.text!=='OK')alert('บันทึกเมืองแล้ว แต่ยังดึงอากาศไม่ได้: '+res.text);else alert('บันทึกเมือง "'+c+'" แล้ว');return reloadData();}).catch(e=>alert('บันทึกเมืองไม่สำเร็จ: '+e.message)).finally(()=>{btn.disabled=false;btn.innerText='💾 บันทึกเมือง';});}function saveWifi(){let s=document.getElementById('wifi_list').value,p=document.getElementById('pass').value;if(!s){alert('กรุณาเลือก Wi-Fi ก่อน');return;}fetch('/api/set?key=wifi_ssid&value='+encodeURIComponent(s)).then(()=>fetch('/api/set?key=wifi_pass&value='+encodeURIComponent(p))).then(()=>{alert('บันทึกข้อมูล Wi-Fi ลง EEPROM เรียบร้อย! เครื่องกำลังรีบูตเพื่อเชื่อมต่อ...');setTimeout(()=>fetch('/restart'),500);});}function saveBrightness(v){fetch('/api/set?key=lcd_brightness&value='+encodeURIComponent(v)).catch(()=>alert('ตั้งความสว่างไม่สำเร็จ'));}</script></body></html>)rawliteral";
 
 // Binary search for glyph offset in new font format
 bool findGlyphOffset(uint32_t codepoint, uint32_t &offset) {
+    if (codepoint > 0xFFFF) return false;
+    uint16_t targetCp = (uint16_t)codepoint;
     int16_t lo = 0, hi = THAIFONT_GLYPH_COUNT - 1;
     while (lo <= hi) {
         int16_t mid = lo + ((hi - lo) / 2);
-        uint32_t cp = pgm_read_dword(&ThaiFontIndex[mid].codepoint);
-        if (cp == codepoint) { offset = pgm_read_dword(&ThaiFontIndex[mid].offset); return true; }
-        if (cp < codepoint) lo = mid + 1; else hi = mid - 1;
+        uint16_t cp = pgm_read_word(&ThaiFontIndex[mid].codepoint);
+        if (cp == targetCp) { offset = pgm_read_word(&ThaiFontIndex[mid].offset); return true; }
+        if (cp < targetCp) lo = mid + 1; else hi = mid - 1;
     }
     return false;
 }
@@ -610,120 +337,7 @@ bool isThaiCombiningMark(uint32_t cp) {
     return false;
 }
 
-void drawCell(int16_t x, int16_t y, const uint8_t cell[THAIFONT_HEIGHT], uint16_t color) {
-    for (uint8_t row = 0; row < THAIFONT_HEIGHT; row++) {
-        uint8_t bits = cell[row];
-        for (uint8_t col = 0; col < 8; col++) {
-            if (bits & (0x80 >> col)) tft.drawPixel(x + col, y + row, color);
-        }
-    }
-}
-
-// drawThaiString: Cell-based renderer with Combining Mark (สระ) support
-void drawThaiString(int16_t x, int16_t y, const char* str, uint16_t color, uint16_t bg) {
-    uint8_t cell[THAIFONT_HEIGHT];
-    uint8_t glyph[THAIFONT_HEIGHT];
-    bool haveCell = false;
-    bool haveUpperVowel = false;
-    int16_t curX = x;
-
-    memset(cell, 0, THAIFONT_HEIGHT);
-    const char* ptr = str;
-
-    auto flushCell = [&]() {
-        if (!haveCell) return;
-        drawCell(curX, y, cell, color);
-        curX += 8;
-        memset(cell, 0, THAIFONT_HEIGHT);
-        haveCell = false;
-        haveUpperVowel = false;
-    };
-
-    while (*ptr) {
-        yield();
-        uint32_t cp = 0;
-        uint8_t b = (uint8_t)*ptr;
-
-        if (b < 0x80) { cp = b; ptr++; }
-        else if ((b & 0xE0) == 0xC0) { cp = ((b & 0x1F) << 6) | ((uint8_t)ptr[1] & 0x3F); ptr += 2; }
-        else if ((b & 0xF0) == 0xE0) { cp = ((b & 0x0F) << 12) | (((uint8_t)ptr[1] & 0x3F) << 6) | ((uint8_t)ptr[2] & 0x3F); ptr += 3; }
-        else { ptr++; continue; }
-
-        if (cp == ' ') { flushCell(); curX += 8; continue; }
-        if (cp == '\n') { flushCell(); curX = x; y += THAIFONT_HEIGHT; continue; }
-
-        if (isThaiCombiningMark(cp)) {
-            // สระ ำ (U+0E33) ประกอบด้วย ํ (U+0E4D) + า (U+0E32)
-            // วาด ํ ทับ cell เดิม (combining mark) แล้ววาด า cell ใหม่ (vowel)
-            if (cp == 0x0E33) {
-                // 1. วาด ํ (nikhahit) ทับ cell ปัจจุบัน
-                if (haveCell && loadGlyph(0x0E4D, glyph)) {
-                    //haveUpperVowel = true;  // ํ เป็นสระบน ห้ามเลื่อนวรรณยุกต์
-                    for (uint8_t i = 0; i < THAIFONT_HEIGHT; i++) cell[i] |= glyph[i];
-                }
-
-                // 2. Flush cell เพื่อเริ่ม cell ใหม่
-                flushCell();
-                if (curX + 8 > 240) { curX = x; y += THAIFONT_HEIGHT; }
-
-                // 3. วาด า (sara aa) เป็น cell ใหม่
-                if (loadGlyph(0x0E32, glyph)) {
-                    memcpy(cell, glyph, THAIFONT_HEIGHT);
-                    haveCell = true;
-                }
-                continue;  // เสร็จแล้ว ไปตัวถัดไป
-            }
-
-            // Merge สระ/วรรณยุกต์อื่นๆ ลงบน Cell ปัจจุบัน (ไม่เลื่อน cursor)
-            if (haveCell && loadGlyph(cp, glyph)) {
-                if (!haveUpperVowel && cp >= 0x0E48 && cp <= 0x0E4C) {
-                    // ถ้า cell ปัจจุบันไม่มีสระบน และ เจอวรรณยุกต์ ต้องเลื่อน cell ลง THAIFONT_TONES_HEIGHT บรรทัดก่อนรวม
-                    // เพื่อให้วรรณยุกต์อยู่บนสุดของ cell ไม่ทับพยัญชนะ
-                    //
-                    // **ยกเว้น:** ถ้าตัวถัดไปเป็นสระ ำ (U+0E33) ไม่ต้องเลื่อน
-                    // เพราะ ำ จะแยกเป็น ํ (U+0E4D) + า และ ํ จะมาทับบนวรรณยุกต์พอดี
-                    // ตัวอย่าง: "น้ำ" = น + ้ + ำ → น + ้ + ํ + า (ํ ทับบน ้)
-
-                    // Peek ดูตัวถัดไป
-                    uint32_t next_cp = 0;
-                    const char* next_ptr = ptr;
-                    if (*next_ptr) {
-                        uint8_t nb = (uint8_t)*next_ptr;
-                        if (nb < 0x80) { next_cp = nb; }
-                        else if ((nb & 0xE0) == 0xC0) { next_cp = ((nb & 0x1F) << 6) | ((uint8_t)next_ptr[1] & 0x3F); }
-                        else if ((nb & 0xF0) == 0xE0) { next_cp = ((nb & 0x0F) << 12) | (((uint8_t)next_ptr[1] & 0x3F) << 6) | ((uint8_t)next_ptr[2] & 0x3F); }
-                    }
-
-                    // เลื่อน glyph ลงเฉพาะเมื่อตัวถัดไป **ไม่ใช่** สระ ำ
-                    if (next_cp != 0x0E33) {
-                        // ใช้ int16_t แทน uint8_t กัน underflow ตอน i = 0
-                        for (int16_t i = THAIFONT_HEIGHT - 1; i >= THAIFONT_TONES_HEIGHT; i--) {
-                            glyph[i] = glyph[i - THAIFONT_TONES_HEIGHT];
-                        }
-                        for (uint8_t i = 0; i < THAIFONT_TONES_HEIGHT; i++) glyph[i] = 0;
-                    }
-                } else {
-                    // ติดตามว่า cell นี้มีสระบนแล้วหรือยัง เพื่อไม่ให้เลื่อนซ้ำ
-                    haveUpperVowel = (cp >= 0x0E34 && cp <= 0x0E37);
-                }
-                for (uint8_t i = 0; i < THAIFONT_HEIGHT; i++) cell[i] |= glyph[i];
-            }
-            continue;
-        }
-
-        // พยัญชนะหรือ ASCII ตัวใหม่ — flush cell เก่า แล้วเริ่ม cell ใหม่
-        flushCell();
-        if (curX + 8 > 240) { curX = x; y += THAIFONT_HEIGHT; }
-
-        if (loadGlyph(cp, glyph)) {
-            memcpy(cell, glyph, THAIFONT_HEIGHT);
-            haveCell = true;
-        }
-    }
-    flushCell();
-}
-
-// Scaled Thai renderer — scale=2 คือ font 16x32, scale=3 คือ 24x48
+// Scaled Thai renderer with Run-Length Acceleration — scale=1 คือ 8x16, scale=2 คือ 16x32, scale=3 คือ 24x48
 void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color, uint8_t scale) {
     if (scale < 1) scale = 1;
     uint8_t cell[THAIFONT_HEIGHT];
@@ -737,17 +351,19 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
 
     auto flushCellScaled = [&]() {
         if (!haveCell) return;
-        // วาดแต่ละ pixel เป็น scale x scale block
+        // รวม pixel ที่ติดกันในแนวนอน (horizontal run-length) แล้ววาดด้วย fillRect ครั้งเดียว ลด SPI calls มหาศาล
         for (uint8_t row = 0; row < THAIFONT_HEIGHT; row++) {
             uint8_t bits = cell[row];
-            for (uint8_t col = 0; col < 8; col++) {
+            if (!bits) continue;
+            int16_t py = y + row * scale;
+            uint8_t col = 0;
+            while (col < 8) {
                 if (bits & (0x80 >> col)) {
-                    tft.fillRect(
-                        curX + col * scale,
-                        y   + row * scale,
-                        scale, scale,
-                        color
-                    );
+                    uint8_t startCol = col;
+                    while (col < 8 && (bits & (0x80 >> col))) col++;
+                    tft.fillRect(curX + startCol * scale, py, (col - startCol) * scale, scale, color);
+                } else {
+                    col++;
                 }
             }
         }
@@ -772,37 +388,22 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
 
         if (isThaiCombiningMark(cp)) {
             // สระ ำ (U+0E33) ประกอบด้วย ํ (U+0E4D) + า (U+0E32)
-            // วาด ํ ทับ cell เดิม (combining mark) แล้ววาด า cell ใหม่ (vowel)
             if (cp == 0x0E33) {
-                // 1. วาด ํ (nikhahit) ทับ cell ปัจจุบัน
                 if (haveCell && loadGlyph(0x0E4D, glyph)) {
-                    //haveUpperVowel = true;  // ํ เป็นสระบน ห้ามเลื่อนวรรณยุกต์
                     for (uint8_t i = 0; i < THAIFONT_HEIGHT; i++) cell[i] |= glyph[i];
                 }
-
-                // 2. Flush cell เพื่อเริ่ม cell ใหม่
                 flushCellScaled();
                 if (curX + 8 * scale > 240) { curX = x; y += THAIFONT_HEIGHT * scale; }
-
-                // 3. วาด า (sara aa) เป็น cell ใหม่
                 if (loadGlyph(0x0E32, glyph)) {
                     memcpy(cell, glyph, THAIFONT_HEIGHT);
                     haveCell = true;
                 }
-                continue;  // เสร็จแล้ว ไปตัวถัดไป
+                continue;
             }
 
-            // Merge สระ/วรรณยุกต์อื่นๆ ลงบน Cell ปัจจุบัน (ไม่เลื่อน cursor)
+            // Merge สระ/วรรณยุกต์อื่นๆ ลงบน Cell ปัจจุบัน
             if (haveCell && loadGlyph(cp, glyph)) {
                 if (!haveUpperVowel && cp >= 0x0E48 && cp <= 0x0E4C) {
-                    // ถ้า cell ปัจจุบันไม่มีสระบน และ เจอวรรณยุกต์ ต้องเลื่อน cell ลง THAIFONT_TONES_HEIGHT บรรทัดก่อนรวม
-                    // เพื่อให้วรรณยุกต์อยู่บนสุดของ cell ไม่ทับพยัญชนะ
-                    //
-                    // **ยกเว้น:** ถ้าตัวถัดไปเป็นสระ ำ (U+0E33) ไม่ต้องเลื่อน
-                    // เพราะ ำ จะแยกเป็น ํ (U+0E4D) + า และ ํ จะมาทับบนวรรณยุกต์พอดี
-                    // ตัวอย่าง: "น้ำ" = น + ้ + ำ → น + ้ + ํ + า (ํ ทับบน ้)
-
-                    // Peek ดูตัวถัดไป
                     uint32_t next_cp = 0;
                     const char* next_ptr = ptr;
                     if (*next_ptr) {
@@ -812,16 +413,13 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
                         else if ((nb & 0xF0) == 0xE0) { next_cp = ((nb & 0x0F) << 12) | (((uint8_t)next_ptr[1] & 0x3F) << 6) | ((uint8_t)next_ptr[2] & 0x3F); }
                     }
 
-                    // เลื่อน glyph ลงเฉพาะเมื่อตัวถัดไป **ไม่ใช่** สระ ำ
                     if (next_cp != 0x0E33) {
-                        // ใช้ int16_t แทน uint8_t กัน underflow ตอน i = 0
                         for (int16_t i = THAIFONT_HEIGHT - 1; i >= THAIFONT_TONES_HEIGHT; i--) {
                             glyph[i] = glyph[i - THAIFONT_TONES_HEIGHT];
                         }
                         for (uint8_t i = 0; i < THAIFONT_TONES_HEIGHT; i++) glyph[i] = 0;
                     }
                 } else {
-                    // ติดตามว่า cell นี้มีสระบนแล้วหรือยัง เพื่อไม่ให้เลื่อนซ้ำ
                     haveUpperVowel = (cp >= 0x0E34 && cp <= 0x0E37);
                 }
                 for (uint8_t i = 0; i < THAIFONT_HEIGHT; i++) cell[i] |= glyph[i];
@@ -840,6 +438,12 @@ void drawThaiStringScaled(int16_t x, int16_t y, const char* str, uint16_t color,
     flushCellScaled();
 }
 
+// 1x Thai String (wrapper ไปยัง drawThaiStringScaled เพื่อประหยัด Flash)
+inline void drawThaiString(int16_t x, int16_t y, const char* str, uint16_t color, uint16_t bg = ST77XX_BLACK) {
+    (void)bg;
+    drawThaiStringScaled(x, y, str, color, 1);
+}
+
 // Shortcut สำหรับ 2x (16x32 pixels per glyph)
 void drawThaiString2x(int16_t x, int16_t y, const char* str, uint16_t color) {
     drawThaiStringScaled(x, y, str, color, 2);
@@ -853,23 +457,24 @@ void updateWifiStatusLCD() {
     tft.setTextSize(1);
     
     if (WiFi.status() == WL_CONNECTED) {
-        tft.setTextColor(ST77XX_GREEN);
+        tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
         tft.setCursor(10, 5);
-        tft.printf("IP: %s", WiFi.localIP().toString().c_str());
+        tft.print(F("IP: "));
+        tft.print(WiFi.localIP());
         // เตือนบนจอเมื่อยังไม่ได้เปลี่ยนรหัสผ่านหน้าเว็บ
         if (usingDefaultWebPass()) {
-            tft.setTextColor(ST77XX_RED);
+            tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
             tft.setCursor(190, 5);
-            tft.print("[!PW]");
+            tft.print(F("[!PW]"));
         }
     } else if (isAPModeActive) {
-        tft.setTextColor(ST77XX_ORANGE);
+        tft.setTextColor(ST77XX_ORANGE, ST77XX_BLACK);
         tft.setCursor(10, 5);
-        tft.print("AP: 192.168.4.1 (SmartClock)");
+        tft.print(F("AP: 192.168.4.1 (SmartClock)"));
     } else {
-        tft.setTextColor(ST77XX_RED);
+        tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
         tft.setCursor(10, 5);
-        tft.print("WiFi: Connecting...");
+        tft.print(F("WiFi: Connecting..."));
     }
 }
 
@@ -917,15 +522,15 @@ void drawGoldArea() {
         }
         char priceStr[16];
         snprintf(priceStr, sizeof(priceStr), "$%.2f", gold.price);
-        tft.setTextColor(color);
+        tft.setTextColor(color, ST77XX_BLACK);
         tft.setTextSize(3);
         tft.setCursor(20, 192);
         tft.print(priceStr);
     } else {
-        tft.setTextColor(ST77XX_ORANGE);
+        tft.setTextColor(ST77XX_ORANGE, ST77XX_BLACK);
         tft.setTextSize(2);
         tft.setCursor(20, 196);
-        tft.print("Loading...");
+        tft.print(F("Loading..."));
     }
 
     drawStaleDot(218, 170, gold.stale);
@@ -939,19 +544,18 @@ void initStaticLCDScreen() {
 }
 
 // หน้า loading ตอนบูต — โชว์ระหว่างต่อ Wi-Fi/ดึงข้อมูลรอบแรก กันจอมืดหรือค้าง
-// จอเปล่าหลายวินาทีจนดูเหมือนเครื่องแฮงก์ ก่อนจะสลับไปหน้านาฬิกาจริงทีเดียว
 void drawBootScreen() {
     tft.fillScreen(ST77XX_BLACK);
-    tft.setTextColor(ST77XX_CYAN);
+    tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
     tft.setTextSize(3);
     tft.setCursor(26, 78);
-    tft.print("SMART");
+    tft.print(F("SMART"));
     tft.setCursor(26, 108);
-    tft.print("CLOCK");
-    tft.setTextColor(ST77XX_BLUE);
+    tft.print(F("CLOCK"));
+    tft.setTextColor(ST77XX_BLUE, ST77XX_BLACK);
     tft.setTextSize(1);
     tft.setCursor(92, 142);
-    tft.printf("v%s", FW_VERSION);
+    tft.printf_P(PSTR("v%s"), FW_VERSION);
 }
 
 // อัปเดตแค่บรรทัดสถานะ ไม่วาดทับโลโก้ทั้งจอซ้ำ — dotCount 0-3 ทำจุดวิ่งให้ดูไม่นิ่ง
@@ -968,11 +572,13 @@ void drawBootStatus(const char* thaiStatus, uint8_t dotCount) {
 void updateTimeOnly() {
     if (displayMode != MODE_CLOCK) return;
 
-    // ล้างเฉพาะพื้นที่แสดงเวลาด้านบน
-    tft.fillRect(0, 20, 240, 45, ST77XX_BLACK);
-    
+    static bool hadValidTime = false;
     time_t now = time(nullptr);
     if (now > 1000000) {
+        if (!hadValidTime) {
+            tft.fillRect(0, 20, 240, 45, ST77XX_BLACK);
+            hadValidTime = true;
+        }
         struct tm t;
         localtime_r(&now, &t);
         char timeStr[16];
@@ -983,15 +589,18 @@ void updateTimeOnly() {
         } else {
             snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
         }
-        tft.setTextColor(ST77XX_YELLOW);
-        tft.setTextSize(4); // ปรับเวลาเป็นตัวใหญ่ขึ้น 4 เท่า ให้เห็นชัดเจน
+        // วาดตัวเลขทับด้วย text color + background color ทันที (flicker-free)
+        tft.setTextColor(ST77XX_YELLOW, ST77XX_BLACK);
+        tft.setTextSize(4);
         tft.setCursor(25, 25);
         tft.print(timeStr);
     } else {
-        tft.setTextColor(ST77XX_RED);
+        hadValidTime = false;
+        tft.fillRect(0, 20, 240, 45, ST77XX_BLACK);
+        tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
         tft.setTextSize(2);
         tft.setCursor(45, 30);
-        tft.print("NTP Syncing...");
+        tft.print(F("NTP Syncing..."));
     }
 }
 
@@ -1434,12 +1043,20 @@ void drawGauge(const Widget &g) {
 // ---------------------------------------------------------------------------
 
 // helper: เติม tag(2 หลัก) + length(2 หลัก) + value ต่อ buffer พร้อมขยับ length รวม
-static void ppAppend(String &out, const char* tag, const String &val) {
+static void ppAppend(String &out, const char* tag, const char* val, size_t valLen) {
     char len[3];
-    snprintf(len, sizeof(len), "%02u", (unsigned)val.length());
+    snprintf(len, sizeof(len), "%02u", (unsigned)valLen);
     out += tag;
     out += len;
-    out += val;
+    out.concat(val, valLen);
+}
+
+static inline void ppAppend(String &out, const char* tag, const String &val) {
+    ppAppend(out, tag, val.c_str(), val.length());
+}
+
+static inline void ppAppend(String &out, const char* tag, const char* val) {
+    ppAppend(out, tag, val, strlen(val));
 }
 
 // CRC16/CCITT-FALSE (poly 0x1021, init 0xFFFF, no reflect, xorout 0x0000)
@@ -1461,36 +1078,43 @@ String buildPromptPayPayload(const char* id, float amount) {
     if (!id || !*id) return String();
 
     // เก็บเฉพาะตัวเลขจาก id ที่รับมา กันเผื่อผู้ใช้พิมพ์ขีด/เว้นวรรคปนมา
-    String digits;
-    for (const char* p = id; *p; p++) if (isdigit((unsigned char)*p)) digits += *p;
+    char digits[16];
+    uint8_t dlen = 0;
+    for (const char* p = id; *p && dlen < 15; p++) {
+        if (isdigit((unsigned char)*p)) digits[dlen++] = *p;
+    }
+    digits[dlen] = '\0';
 
-    String targetTag, targetVal;
-    if (digits.length() == 10 && digits[0] == '0') {
+    const char* targetTag = nullptr;
+    char targetVal[20];
+    if (dlen == 10 && digits[0] == '0') {
         // เบอร์โทร — แปลงเป็น 66 + เบอร์แบบตัด 0 นำหน้า ตามสเปก tag 01 (mobile)
         targetTag = "01";
-        targetVal = "0066" + digits.substring(1);
-    } else if (digits.length() == 13) {
+        snprintf(targetVal, sizeof(targetVal), "0066%s", digits + 1);
+    } else if (dlen == 13) {
         // เลขบัตรประชาชน 13 หลัก — tag 02 (national ID)
         targetTag = "02";
-        targetVal = digits;
+        strlcpy(targetVal, digits, sizeof(targetVal));
     } else {
         return String(); // รูปแบบไม่ตรงทั้งเบอร์โทรและเลขบัตร ปฏิเสธไปเลยดีกว่าสร้าง QR ผิด
     }
 
     // Merchant Account Information (tag 29) ของ PromptPay: GUID + ตัวระบุผู้รับเงิน
     String mai;
+    mai.reserve(48);
     ppAppend(mai, "00", "A000000677010111"); // GUID มาตรฐาน PromptPay ตรึงตายตัว
-    ppAppend(mai, targetTag.c_str(), targetVal);
+    ppAppend(mai, targetTag, targetVal);
 
     String payload;
+    payload.reserve(128);
     ppAppend(payload, "00", "01");             // Payload Format Indicator
     ppAppend(payload, "01", amount > 0 ? "12" : "11"); // Point of Initiation: 12=ตรึงยอด, 11=ไม่ตรึง
     ppAppend(payload, "29", mai);
     ppAppend(payload, "53", "764");            // Transaction Currency = THB (ISO 4217)
     if (amount > 0) {
         char amtBuf[16];
-        snprintf(amtBuf, sizeof(amtBuf), "%.2f", amount);
-        ppAppend(payload, "54", String(amtBuf));
+        int amtLen = snprintf(amtBuf, sizeof(amtBuf), "%.2f", amount);
+        ppAppend(payload, "54", amtBuf, amtLen);
     }
     ppAppend(payload, "58", "TH");             // Country Code
 
@@ -1708,9 +1332,6 @@ bool geocodeCity() {
     WiFiClient client;
     HTTPClient http;
     http.setTimeout(HTTP_TIMEOUT_MS);
-    // ขอ HTTP/1.0 บังคับให้ server ตอบแบบไม่ chunked เพราะ getStream() อ่านสตรีมดิบ
-    // ตรงเข้า deserializeJson ไม่มีการ dechunk ให้ (dechunk มีแต่ใน getString()/writeToStream())
-    // ถ้า server ตอบ Transfer-Encoding: chunked จะเจอ hex chunk-size ปนมาในสตรีม parse fail ตลอด
     http.useHTTP10(true);
 
     String url = String(GEOCODE_HOST) + "/v1/search?count=1&language=th&format=json&name=" + urlEncode(sysConfig.city);
@@ -1718,12 +1339,11 @@ bool geocodeCity() {
 
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
-        Serial.printf("Geocode failed: HTTP %d\n", code);
+        Serial.printf_P(PSTR("Geocode failed: HTTP %d\n"), code);
         http.end();
         return false;
     }
 
-    // อ่านแค่ field ที่ใช้ ลด RAM ที่ ArduinoJson ต้องจอง
     StaticJsonDocument<80> filter;
     filter["results"][0]["latitude"] = true;
     filter["results"][0]["longitude"] = true;
@@ -1733,19 +1353,19 @@ bool geocodeCity() {
     http.end();
 
     if (err) {
-        Serial.printf("Geocode JSON error: %s\n", err.c_str());
+        Serial.printf_P(PSTR("Geocode JSON error: %s\n"), err.c_str());
         return false;
     }
 
     JsonArray results = doc["results"].as<JsonArray>();
     if (results.isNull() || results.size() == 0) {
-        Serial.println("Geocode: city not found");
+        Serial.println(F("Geocode: city not found"));
         return false;
     }
 
     sysConfig.lat = results[0]["latitude"] | 0.0f;
     sysConfig.lon = results[0]["longitude"] | 0.0f;
-    Serial.printf("Geocoded %s -> %.4f, %.4f\n", sysConfig.city, sysConfig.lat, sysConfig.lon);
+    Serial.printf_P(PSTR("Geocoded %s -> %.4f, %.4f\n"), sysConfig.city, sysConfig.lat, sysConfig.lon);
     saveConfigEEPROM();
     return true;
 }
@@ -1761,7 +1381,6 @@ bool fetchWeather() {
     WiFiClient client;
     HTTPClient http;
     http.setTimeout(HTTP_TIMEOUT_MS);
-    // เหตุผลเดียวกับ geocodeCity() — กัน chunked transfer-encoding ทำ JSON parse fail
     http.useHTTP10(true);
 
     char url[160];
@@ -1773,7 +1392,7 @@ bool fetchWeather() {
 
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
-        Serial.printf("Weather failed: HTTP %d\n", code);
+        Serial.printf_P(PSTR("Weather failed: HTTP %d\n"), code);
         http.end();
         return false;
     }
@@ -1787,13 +1406,13 @@ bool fetchWeather() {
     http.end();
 
     if (err) {
-        Serial.printf("Weather JSON error: %s\n", err.c_str());
+        Serial.printf_P(PSTR("Weather JSON error: %s\n"), err.c_str());
         return false;
     }
 
     JsonObject current = doc["current"];
     if (current.isNull() || !current.containsKey("temperature_2m")) {
-        Serial.println("Weather: unexpected payload");
+        Serial.println(F("Weather: unexpected payload"));
         return false;
     }
 
@@ -1802,33 +1421,31 @@ bool fetchWeather() {
     weather.valid = true;
     weather.stale = false;
     weather.lastOk = millis();
-    Serial.printf("Weather: %.1fC code=%d (%s)\n", weather.tempC, weather.code, weatherCodeToThai(weather.code));
+    Serial.printf_P(PSTR("Weather: %.1fC code=%d (%s)\n"), weather.tempC, weather.code, weatherCodeToThai(weather.code));
     return true;
 }
 
 bool fetchGold() {
     if (WiFi.status() != WL_CONNECTED) return false;
 
-    // BearSSL กิน RAM มาก เช็คก่อนว่าเหลือพอ ไม่งั้นข้ามรอบนี้ไปดีกว่าค้าง
-    if (ESP.getFreeHeap() < 24000) {
-        Serial.printf("Gold: skipped, heap too low (%u)\n", ESP.getFreeHeap());
+    // BearSSL buffer ถูกตั้งค่าให้เล็ก (1024/512) จึงต้องการ Heap เพียง ~8 KB
+    if (ESP.getFreeHeap() < 8000) {
+        Serial.printf_P(PSTR("Gold: skipped, heap too low (%u)\n"), ESP.getFreeHeap());
         return false;
     }
 
     WiFiClientSecure client;
-    // ไม่ตรวจใบรับรอง เพราะ ESP8266 ไม่มี RAM พอเก็บ CA store
-    // ข้อมูลนี้เป็นราคาสาธารณะอ่านอย่างเดียว ความเสี่ยงจึงต่ำ
     client.setInsecure();
+    client.setBufferSizes(1024, 512); // ปรับ buffer size ของ BearSSL เพื่อลดการใช้ Heap ลง ~12KB
 
     HTTPClient http;
     http.setTimeout(HTTP_TIMEOUT_MS);
-    // เหตุผลเดียวกับ geocodeCity() — กัน chunked transfer-encoding ทำ JSON parse fail
     http.useHTTP10(true);
     if (!http.begin(client, GOLD_URL)) return false;
 
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
-        Serial.printf("Gold failed: HTTP %d\n", code);
+        Serial.printf_P(PSTR("Gold failed: HTTP %d\n"), code);
         http.end();
         return false;
     }
@@ -1841,18 +1458,18 @@ bool fetchGold() {
     http.end();
 
     if (err) {
-        Serial.printf("Gold JSON error: %s\n", err.c_str());
+        Serial.printf_P(PSTR("Gold JSON error: %s\n"), err.c_str());
         return false;
     }
 
     if (!doc.containsKey("price")) {
-        Serial.println("Gold: unexpected payload");
+        Serial.println(F("Gold: unexpected payload"));
         return false;
     }
 
     float newPrice = doc["price"] | 0.0f;
     if (newPrice <= 0.0f) {
-        Serial.println("Gold: price out of range");
+        Serial.println(F("Gold: price out of range"));
         return false;
     }
 
@@ -1862,7 +1479,7 @@ bool fetchGold() {
     gold.valid = true;
     gold.stale = false;
     gold.lastOk = millis();
-    Serial.printf("Gold: $%.2f (prev $%.2f)\n", gold.price, gold.prevPrice);
+    Serial.printf_P(PSTR("Gold: $%.2f (prev $%.2f)\n"), gold.price, gold.prevPrice);
     return true;
 }
 
@@ -1886,7 +1503,7 @@ void handleScanWifi() {
 
     String response;
     serializeJson(doc, response);
-    server.send(200, "application/json", response);
+    server.send(200, F("application/json"), response);
 }
 
 void handleConfig() {
@@ -1926,7 +1543,7 @@ void handleConfig() {
 
     String response;
     serializeJson(doc, response);
-    server.send(200, "application/json", response);
+    server.send(200, F("application/json"), response);
 }
 
 void handleApiSet() {
@@ -1947,20 +1564,18 @@ void handleApiSet() {
                 fetchWeather();
                 drawWeatherArea();
             }
-            server.send(200, "text/plain", weather.valid ? "OK" : "saved, but weather fetch failed");
+            server.send(200, F("text/plain"), weather.valid ? F("OK") : F("saved, but weather fetch failed"));
             return;
         }
         else if (key == "wifi_ssid") strlcpy(sysConfig.ssid, value.c_str(), sizeof(sysConfig.ssid));
         else if (key == "wifi_pass") strlcpy(sysConfig.password, value.c_str(), sizeof(sysConfig.password));
         else if (key == "lcd_brightness") {
             sysConfig.brightness = value.toInt();
-            // ใช้ helper กลางตัวเดียวกับที่ renderDashboard()/switchToClock() เรียก
-            // กันไม่ให้ map(pct,0,100,1023,0) ไปกระจายอยู่หลายที่จนแก้ไม่ครบ (เช่นตอนแก้บัค analogWriteRange)
             setBacklightPct(sysConfig.brightness);
         }
         else if (key == "web_user") {
             if (value.length() < 1) {
-                server.send(400, "text/plain", "username must not be empty");
+                server.send(400, F("text/plain"), F("username must not be empty"));
                 return;
             }
             strlcpy(sysConfig.webUser, value.c_str(), sizeof(sysConfig.webUser));
@@ -1968,16 +1583,16 @@ void handleApiSet() {
         else if (key == "web_pass") {
             // กันตั้งรหัสว่างหรือสั้นเกินไป ไม่งั้น auth จะไร้ความหมาย
             if (value.length() < 8) {
-                server.send(400, "text/plain", "password must be at least 8 characters");
+                server.send(400, F("text/plain"), F("password must be at least 8 characters"));
                 return;
             }
             strlcpy(sysConfig.webPass, value.c_str(), sizeof(sysConfig.webPass));
         }
 
         saveConfigEEPROM(); // Persist to EEPROM
-        server.send(200, "text/plain", "OK");
+        server.send(200, F("text/plain"), F("OK"));
     } else {
-        server.send(400, "text/plain", "Bad Request");
+        server.send(400, F("text/plain"), F("Bad Request"));
     }
 }
 
@@ -1987,21 +1602,20 @@ void handleApiSet() {
 // ---------------------------------------------------------------------------
 void handleApiDraw() {
     if (!server.hasArg("plain")) {
-        server.send(400, "text/plain", "expected JSON body");
+        server.send(400, F("text/plain"), F("expected JSON body"));
         return;
     }
 
     const String &bodyRef = server.arg("plain");
     if (bodyRef.length() > DASH_MAX_BODY) {
-        server.send(413, "text/plain", "body too large");
+        server.send(413, F("text/plain"), F("body too large"));
         return;
     }
 
-    // กันไว้แบบเดียวกับตอนดึงทอง (heap < 24000 ข้ามรอบ) — ถ้า heap ไม่พอจอง
-    // document ให้ตอบ 503 ตรงๆ ดีกว่าปล่อยให้ deserialize พังแล้วตอบ 400 ซึ่งชี้ผิดที่
+    // กันไว้แบบเดียวกับตอนดึงทอง — ถ้า heap ไม่พอจอง document ให้ตอบ 503 ตรงๆ
     if (ESP.getFreeHeap() < DASH_DOC_SIZE + 8000) {
-        Serial.printf("Draw: rejected, heap too low (%u)\n", ESP.getFreeHeap());
-        server.send(503, "text/plain", "heap too low, try again");
+        Serial.printf_P(PSTR("Draw: rejected, heap too low (%u)\n"), ESP.getFreeHeap());
+        server.send(503, F("text/plain"), F("heap too low, try again"));
         return;
     }
 
@@ -2009,13 +1623,13 @@ void handleApiDraw() {
     DynamicJsonDocument doc(DASH_DOC_SIZE);
     DeserializationError err = deserializeJson(doc, bodyRef);
     if (err) {
-        server.send(400, "text/plain", String("JSON error: ") + err.c_str());
+        server.send(400, F("text/plain"), String(F("JSON error: ")) + err.c_str());
         return;
     }
 
     JsonArray widgets = doc["widgets"].as<JsonArray>();
     if (widgets.isNull()) {
-        server.send(400, "text/plain", "missing widgets array");
+        server.send(400, F("text/plain"), F("missing widgets array"));
         return;
     }
 
@@ -2184,9 +1798,6 @@ void handleApiDraw() {
             g.count = 1;
         }
         // ---- QR code: เข้ารหัสจาก text ตรึง VERSION7/ECC-L (45x45 module) ----
-        // ไม่ใช้ readCommon() เพราะดีฟอลต์ color2=แดงของกราฟไม่เหมาะเป็นพื้นขาว
-        // ของ QR — ตั้งดีฟอลต์ตรงนี้เอง: สีมืด(module), สีสว่าง(พื้น/quiet zone)
-        // เก็บแยกจาก widget array เพราะใช้ได้ 1 อันต่อ dashboard
         else if (!strcmp(type, "qr")) {
             dash.qrX = wgt["x"] | 5;
             dash.qrY = wgt["y"] | 5;
@@ -2195,9 +1806,6 @@ void handleApiDraw() {
             dash.qrBg = parseColor(wgt["color"]  | "", ST77XX_BLACK);  // พื้นหลัง
             dash.qrFg = parseColor(wgt["color2"] | "", ST77XX_WHITE); // module
 
-            // สองทาง: ส่ง text ตรงมาเลย (สำหรับ URL/ข้อความทั่วไป) หรือส่ง promptpay_id
-            // (+ promptpay_amount ถ้าต้องการตรึงยอด) ให้เฟิร์มแวร์ประกอบสาย EMV เอง
-            // กันผู้ใช้ต้องคำนวณ CRC/tag-length-value เองฝั่ง caller ซึ่งพลาดง่ายมาก
             const char* ppId = wgt["promptpay_id"] | "";
             if (*ppId) {
                 float amt = wgt["promptpay_amount"] | 0.0f;
@@ -2211,7 +1819,6 @@ void handleApiDraw() {
                 if (!*s) continue; // ไม่มีข้อความให้เข้ารหัส ข้าม
                 strlcpy(dash.qrText, s, sizeof(dash.qrText));
             }
-            // ไม่เพิ่ม widget เข้า array — QR วาดแยกใน renderDashboard()
             continue;
         }
         // ---- primitive วางเลย์เอาต์ ----
@@ -2245,7 +1852,7 @@ void handleApiDraw() {
     }
 
     if (dash.widgetCount == 0) {
-        server.send(400, "text/plain", "no drawable widget");
+        server.send(400, F("text/plain"), F("no drawable widget"));
         return;
     }
 
@@ -2257,23 +1864,21 @@ void handleApiDraw() {
     const char* mode = doc["mode"] | "dashboard";
     if (!strcmp(mode, "dashboard")) displayMode = MODE_DASHBOARD;
 
-    server.send(200, "text/plain", "OK");
+    server.send(200, F("text/plain"), F("OK"));
 }
 
 void handleOTAUpdate() {
     HTTPUpload& upload = server.upload();
 
-    // สำคัญ: ต้องกันตั้งแต่ไบต์แรก ไม่ใช่รอไปเช็คใน handler หลัก
-    // เพราะ upload handler ทำงานก่อน ถ้าไม่กันที่นี่ไฟล์จะถูกเขียนลงแฟลชไปแล้ว
     if (!server.authenticate(sysConfig.webUser, sysConfig.webPass)) {
         if (upload.status == UPLOAD_FILE_START) {
-            Serial.println("OTA rejected: unauthorized");
+            Serial.println(F("OTA rejected: unauthorized"));
         }
         return;
     }
 
     if (upload.status == UPLOAD_FILE_START) {
-        Serial.printf("Update Start: %s\n", upload.filename.c_str());
+        Serial.printf_P(PSTR("Update Start: %s\n"), upload.filename.c_str());
         uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & ~0xFFF;
         if (!Update.begin(maxSketchSpace)) {
             Update.printError(Serial);
@@ -2284,7 +1889,7 @@ void handleOTAUpdate() {
         }
     } else if (upload.status == UPLOAD_FILE_END) {
         if (Update.end(true)) {
-            Serial.printf("Update Success: %u bytes\n", upload.totalSize);
+            Serial.printf_P(PSTR("Update Success: %u bytes\n"), upload.totalSize);
         } else {
             Update.printError(Serial);
         }
@@ -2311,7 +1916,7 @@ void setupWebServer() {
     server.on("/refresh", HTTP_GET, [](){
         if (!requireAuth()) return;
         if (WiFi.status() != WL_CONNECTED) {
-            server.send(503, "text/plain", "Wi-Fi not connected");
+            server.send(503, F("text/plain"), F("Wi-Fi not connected"));
             return;
         }
         // ใช้กติกาเดียวกับ scheduler: ดึงไม่สำเร็จแต่เคยมีข้อมูล = ของเก่า ต้องขึ้นจุดเหลือง
@@ -2343,7 +1948,7 @@ void setupWebServer() {
             bool wantDash = (to == "dashboard") || (displayMode == MODE_CLOCK);
             if (wantDash) {
                 if (!dash.valid) {
-                    server.send(409, "text/plain", "no dashboard frame pushed yet");
+                    server.send(409, F("text/plain"), F("no dashboard frame pushed yet"));
                     return;
                 }
                 switchToDashboard();
@@ -2351,31 +1956,30 @@ void setupWebServer() {
                 switchToClock();
             }
         } else {
-            server.send(400, "text/plain", "to must be clock|dashboard|toggle");
+            server.send(400, F("text/plain"), F("to must be clock|dashboard|toggle"));
             return;
         }
 
-        server.send(200, "text/plain", displayMode == MODE_DASHBOARD ? "dashboard" : "clock");
+        server.send(200, F("text/plain"), displayMode == MODE_DASHBOARD ? F("dashboard") : F("clock"));
     });
 
     // OTA: ต้องเช็ค auth ทั้งใน upload handler และตอนตอบกลับ
-    // เพราะ ESP8266WebServer เรียก upload handler ก่อนถึง handler หลัก
     server.on("/update_ota", HTTP_POST, [](){
         if (!requireAuth()) return;
-        server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+        server.send(200, F("text/plain"), (Update.hasError()) ? F("FAIL") : F("OK"));
         delay(500);
         ESP.restart();
     }, handleOTAUpdate);
 
     server.on("/restart", HTTP_GET, [](){
         if (!requireAuth()) return;
-        server.send(200, "text/plain", "Restarting...");
+        server.send(200, F("text/plain"), F("Restarting..."));
         delay(500);
         ESP.restart();
     });
 
     server.onNotFound([](){
-        server.send(404, "text/plain", "Not Found");
+        server.send(404, F("text/plain"), F("Not Found"));
     });
 }
 
@@ -2393,7 +1997,7 @@ void maintainWifi() {
 
     if (WiFi.status() == WL_CONNECTED) {
         if (wifiLostSince != 0) {
-            Serial.print("Wi-Fi reconnected. IP: ");
+            Serial.print(F("Wi-Fi reconnected. IP: "));
             Serial.println(WiFi.localIP());
             wifiLostSince = 0;
             // กลับมาต่อได้แล้ว ปิด AP ที่เปิดไว้ตอนหลุด
@@ -2410,21 +2014,21 @@ void maintainWifi() {
     // เพิ่งหลุด — จำเวลาไว้เพื่อนับว่าหลุดมานานแค่ไหน
     if (wifiLostSince == 0) {
         wifiLostSince = millis();
-        Serial.println("Wi-Fi lost. Will retry.");
+        Serial.println(F("Wi-Fi lost. Will retry."));
         updateWifiStatusLCD();
     }
 
     // ยิงต่อใหม่เป็นจังหวะ ไม่ใช่รัวทุกรอบ loop
     if (millis() - lastReconnectTry >= WIFI_RETRY_MS) {
         lastReconnectTry = millis();
-        Serial.println("Reconnecting to Wi-Fi...");
+        Serial.println(F("Reconnecting to Wi-Fi..."));
         WiFi.disconnect();
         WiFi.begin(sysConfig.ssid, sysConfig.password);
     }
 
     // หลุดนานเกินกำหนดและยังไม่ได้เปิด AP — เปิดให้ผู้ใช้เข้ามาแก้ค่าได้
     if (!isAPModeActive && millis() - wifiLostSince >= WIFI_AP_FALLBACK_MS) {
-        Serial.println("Wi-Fi down too long. Enabling AP mode for recovery.");
+        Serial.println(F("Wi-Fi down too long. Enabling AP mode for recovery."));
         WiFi.mode(WIFI_AP_STA);
         WiFi.softAP("SmartClock-AP", "12345678");
         isAPModeActive = true;
@@ -2466,16 +2070,13 @@ void updateDataIfDue() {
 void setup() {
     Serial.begin(115200);
     delay(1000);
-    Serial.println("\n=== GeekMagic SmallTV Firmware v" FW_VERSION " ===");
+    Serial.println(F("\n=== GeekMagic SmallTV Firmware v" FW_VERSION " ==="));
 
     // Active Low Backlight Fix
     pinMode(TFT_BL, OUTPUT);
     digitalWrite(TFT_BL, LOW);
 
     // core ESP8266 Arduino >= 3.0.0 เปลี่ยน analogWrite() default range จาก 1023 เป็น 255
-    // (breaking change) แต่โค้ดทั้งไฟล์ map(pct, 0, 100, 1023, 0) ผูกกับ 1023 มาตั้งแต่ต้น
-    // ถ้าไม่ตั้งกลับ ค่า pct > ~76% จะ map ได้ตัวเลข > 255 แล้วโดน core clamp เป็น 255 (max)
-    // ซึ่ง backlight เป็น active-low ค่า max = ปิดจอสนิท ผู้ใช้แจ้งว่าความสว่าง <76% จอมืดสนิท
     analogWriteRange(1023);
 
     // Initialize ST7789 Display
@@ -2491,32 +2092,29 @@ void setup() {
 
     // WiFi STA Connection Attempt
     WiFi.mode(WIFI_STA);
-    // ให้ SDK ช่วยต่อใหม่เองด้วย ส่วน maintainWifi() คุมกรณีที่ SDK เอาไม่อยู่
     WiFi.setAutoReconnect(true);
-    // ไม่เขียนค่า Wi-Fi ลงแฟลชทุกครั้งที่ต่อ เพราะเราเก็บใน EEPROM เองแล้ว
     WiFi.persistent(false);
     WiFi.begin(sysConfig.ssid, sysConfig.password);
 
     int retries = 0;
     while (WiFi.status() != WL_CONNECTED && retries < 20) {
         delay(500);
-        drawBootStatus("กำลังต่อ Wi-Fi", retries % 4); // จุดวิ่ง กันดูเหมือนจอค้าง
+        drawBootStatus("กำลังต่อ Wi-Fi", retries % 4);
         retries++;
         yield();
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.print("WiFi Connected! IP: ");
+        Serial.print(F("WiFi Connected! IP: "));
         Serial.println(WiFi.localIP());
         isAPModeActive = false;
         WiFi.softAPdisconnect(true);
         drawBootStatus("ต่อสำเร็จ", 0);
     } else {
-        Serial.println("WiFi STA Failed. Enabling Smart AP Mode...");
+        Serial.println(F("WiFi STA Failed. Enabling Smart AP Mode..."));
         WiFi.mode(WIFI_AP_STA);
         WiFi.softAP("SmartClock-AP", "12345678");
         isAPModeActive = true;
-        // นับเวลาหลุดตั้งแต่บูต เพื่อให้ maintainWifi() ทำงานต่อได้ถูกต้อง
         wifiLostSince = millis();
         drawBootStatus("เปิดโหมด AP", 0);
     }
@@ -2526,9 +2124,9 @@ void setup() {
     setupWebServer();
     server.begin();
 
-    Serial.printf("Web UI protected. user=%s\n", sysConfig.webUser);
+    Serial.printf_P(PSTR("Web UI protected. user=%s\n"), sysConfig.webUser);
     if (usingDefaultWebPass()) {
-        Serial.println("WARNING: still using the default web password. Change it at the web UI.");
+        Serial.println(F("WARNING: still using the default web password. Change it at the web UI."));
     }
 
     // ดึงข้อมูลจริงรอบแรกทันทีที่ต่อเน็ตได้ ไม่ต้องรอครบรอบ interval
@@ -2552,14 +2150,13 @@ void loop() {
     updateDataIfDue();
 
     // มี frame ใหม่ที่ push เข้ามา — วาดที่นี่ ไม่วาดใน HTTP handler
-    // เพื่อให้ตอบ 200 กลับไปก่อน ฝั่ง HA ไม่ต้องรอจนวาดเสร็จ
     if (displayMode == MODE_DASHBOARD && dash.dirty) {
         renderDashboard();
     }
 
     // HA เงียบไปนานเกิน TTL — กลับหน้านาฬิกาเอง ไม่ค้างข้อมูลเก่าไว้บนจอ
     if (displayMode == MODE_DASHBOARD && millis() - dash.lastPush >= DASH_TTL_MS) {
-        Serial.println("Dashboard TTL expired. Back to clock.");
+        Serial.println(F("Dashboard TTL expired. Back to clock."));
         dash.valid = false;
         switchToClock();
     }
@@ -2567,7 +2164,6 @@ void loop() {
     static unsigned long lastDisplayUpdate = 0;
     if (millis() - lastDisplayUpdate > 1000) {
         lastDisplayUpdate = millis();
-        // ทั้งสองตัวมี guard เช็คโหมดในตัวแล้ว เรียกได้ตรงๆ
         updateTimeOnly();
         updateWifiStatusLCD();
     }
