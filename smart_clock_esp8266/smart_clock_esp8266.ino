@@ -793,26 +793,26 @@ void widgetRange(const Widget &g, float &lo, float &hi, uint8_t stride = 1) {
 }
 
 // ป้ายค่าสูงสุด/ต่ำสุดริมขวา + กรอบ plot ใช้ร่วมกันทุกกราฟที่มีแกน
-void drawAxisFrame(const Widget &g, int16_t plotW, float lo, float hi) {
-    tft.drawRect(g.x, g.y, plotW, g.h, DASH_GRID_COLOR);
+void drawAxisFrame(const Widget &g, int16_t plotW, float lo, float hi, Adafruit_GFX &gfx = tft, int16_t offsetY = 0) {
+    gfx.drawRect(g.x, g.y - offsetY, plotW, g.h, DASH_GRID_COLOR);
     if (g.w - plotW < 20) return;
 
     char buf[16];
-    tft.setTextSize(1);
-    tft.setTextColor(DASH_MUTED_COLOR);
+    gfx.setTextSize(1);
+    gfx.setTextColor(DASH_MUTED_COLOR);
 
     snprintf(buf, sizeof(buf), "%.*f", g.decimals, hi);
-    tft.setCursor(g.x + plotW + 3, g.y);
-    tft.print(buf);
+    gfx.setCursor(g.x + plotW + 3, g.y - offsetY);
+    gfx.print(buf);
 
     snprintf(buf, sizeof(buf), "%.*f", g.decimals, lo);
-    tft.setCursor(g.x + plotW + 3, g.y + g.h - 8);
-    tft.print(buf);
+    gfx.setCursor(g.x + plotW + 3, g.y + g.h - 8 - offsetY);
+    gfx.print(buf);
 }
 
 // วาดแท่งเทียน autoscale จากช่วง high/low ของชุดข้อมูลที่ส่งมา
 // ฝั่ง HA ส่งแค่ตัวเลข OHLC ไม่ต้องคิดพิกัดพิกเซลเอง
-void drawCandles(const Widget &g) {
+void drawCandles(const Widget &g, Adafruit_GFX &gfx = tft, int16_t offsetY = 0) {
     float lo, hi;
     widgetRange(g, lo, hi, 4); // จุดละ 4 ค่า o,h,l,c
     const float span = hi - lo;
@@ -825,7 +825,7 @@ void drawCandles(const Widget &g) {
         return (int16_t)(g.y + g.h - 1 - frac * (g.h - 1)); // ค่าสูง = y น้อย
     };
 
-    if (g.axis) drawAxisFrame(g, plotW, lo, hi);
+    if (g.axis) drawAxisFrame(g, plotW, lo, hi, gfx, offsetY);
 
     // ความกว้างต่อแท่ง เหลือ 1px เป็นช่องไฟ
     int16_t slot = plotW / g.count;
@@ -842,27 +842,19 @@ void drawCandles(const Widget &g) {
         int16_t mid = bx + body / 2;
         uint16_t col = (cl >= op) ? g.color : g.color2;
 
-        tft.drawLine(mid, toY(chi), mid, toY(clo), col); // ไส้เทียน high-low
+        gfx.drawLine(mid, toY(chi) - offsetY, mid, toY(clo) - offsetY, col); // ไส้เทียน high-low
 
         // ตัวแท่ง open-close — ราคาเท่ากันให้เหลือเส้นบาง 1px ไม่ให้หาย
         int16_t yO = toY(op), yC = toY(cl);
         int16_t top = (yO < yC) ? yO : yC;
         int16_t bh = abs(yC - yO);
         if (bh < 1) bh = 1;
-        tft.fillRect(bx, top, body, bh, col);
+        gfx.fillRect(bx, top - offsetY, body, bh, col);
     }
-
-    // วาดเส้นราคาล่าสุด (close ของแท่งสุดท้าย)
-    /*if (g.count > 0) {
-        float lastClose = wval(g, (g.count - 1) * 4 + 3);
-        int16_t yLast = toY(lastClose);
-        tft.drawFastHLine(g.x, yLast, plotW, ST77XX_YELLOW);
-    }*/
 }
 
 // Column chart — แท่งตั้งเรียงซ้ายไปขวา ระบายจากเส้นฐาน (ค่า 0 ถ้าอยู่ในช่วง)
-// เหมาะกับข้อมูลตามลำดับเวลา เพราะแกนนอนอ่านเป็นไทม์ไลน์ได้ตรงตัว
-void drawColumns(const Widget &g) {
+void drawColumns(const Widget &g, Adafruit_GFX &gfx = tft, int16_t offsetY = 0) {
     float lo, hi;
     widgetRange(g, lo, hi);
     const float span = hi - lo;
@@ -875,7 +867,7 @@ void drawColumns(const Widget &g) {
         return (int16_t)(g.y + g.h - 1 - frac * (g.h - 1));
     };
 
-    if (g.axis) drawAxisFrame(g, plotW, lo, hi);
+    if (g.axis) drawAxisFrame(g, plotW, lo, hi, gfx, offsetY);
 
     const int16_t yBase = toY((lo <= 0.0f && hi >= 0.0f) ? 0.0f : lo);
 
@@ -890,26 +882,23 @@ void drawColumns(const Widget &g) {
 
         int16_t top = (yv < yBase) ? yv : yBase;
         int16_t bh = abs(yv - yBase);
-        if (bh < 1) bh = 1; // ค่าเท่าฐานพอดี ยังต้องเห็นขีดบางๆ
+        if (bh < 1) bh = 1;
 
         uint16_t col = (g.hasThreshold && v >= g.threshold) ? g.color2 : g.color;
-        tft.fillRect(g.x + i * slot, top, body, bh, col);
+        gfx.fillRect(g.x + i * slot, top - offsetY, body, bh, col);
     }
 
-    // เส้นฐานทับบนแท่ง ให้เห็นว่าค่าลบเริ่มจากไหน
     if (lo < 0.0f && hi > 0.0f) {
-        tft.drawFastHLine(g.x, yBase, plotW, DASH_MUTED_COLOR);
+        gfx.drawFastHLine(g.x, yBase - offsetY, plotW, DASH_MUTED_COLOR);
     }
 }
 
 // Horizontal bar chart — แท่งนอนเรียงบนลงล่าง เทียบอันดับระหว่างรายการ
-// ป้ายชื่อรายการอยู่ในกรอบซ้าย ค่าพิมพ์ท้ายแท่ง (values=true)
-void drawHBars(const Widget &g) {
+void drawHBars(const Widget &g, Adafruit_GFX &gfx = tft, int16_t offsetY = 0) {
     float lo, hi;
     widgetRange(g, lo, hi);
     const float span = hi - lo;
 
-    // เว้นขวาให้ตัวเลขท้ายแท่งเมื่อสั่ง values ไม่งั้นใช้ความกว้างเต็ม
     const int16_t plotW = (g.values && g.w > 60) ? g.w - 40 : g.w;
     const int16_t xBase = (lo < 0.0f && hi > 0.0f)
                         ? (int16_t)(g.x + (0.0f - lo) / span * (plotW - 1))
@@ -933,27 +922,25 @@ void drawHBars(const Widget &g) {
 
         int16_t by = g.y + i * slot;
         uint16_t col = (g.hasThreshold && v >= g.threshold) ? g.color2 : g.color;
-        tft.fillRect(bx, by, bw, body, col);
+        gfx.fillRect(bx, by - offsetY, bw, body, col);
 
         if (g.values) {
             char buf[16];
             snprintf(buf, sizeof(buf), "%.*f", g.decimals, v);
-            tft.setTextSize(1);
-            tft.setTextColor(DASH_MUTED_COLOR);
-            // จัดกลางแนวตั้งของแท่ง ฟอนต์ในตัวสูง 8px
-            tft.setCursor(g.x + plotW + 3, by + (body > 8 ? (body - 8) / 2 : 0));
-            tft.print(buf);
+            gfx.setTextSize(1);
+            gfx.setTextColor(DASH_MUTED_COLOR);
+            gfx.setCursor(g.x + plotW + 3, by + (body > 8 ? (body - 8) / 2 : 0) - offsetY);
+            gfx.print(buf);
         }
     }
 
     if (lo < 0.0f && hi > 0.0f) {
-        tft.drawFastVLine(xBase, g.y, g.h, DASH_MUTED_COLOR);
+        gfx.drawFastVLine(xBase, g.y - offsetY, g.h, DASH_MUTED_COLOR);
     }
 }
 
 // Line graph — จุดต่อเส้น เหมาะกับแนวโน้มต่อเนื่อง
-// filled=true ระบายใต้เส้นด้วยเส้นตั้งถี่ ทำเป็น area chart ได้โดยไม่ต้องมี polygon fill
-void drawLineChart(const Widget &g) {
+void drawLineChart(const Widget &g, Adafruit_GFX &gfx = tft, int16_t offsetY = 0) {
     float lo, hi;
     widgetRange(g, lo, hi);
     const float span = hi - lo;
@@ -966,11 +953,10 @@ void drawLineChart(const Widget &g) {
         return (int16_t)(g.y + g.h - 1 - frac * (g.h - 1));
     };
 
-    if (g.axis) drawAxisFrame(g, plotW, lo, hi);
+    if (g.axis) drawAxisFrame(g, plotW, lo, hi, gfx, offsetY);
 
-    // จุดเดียวไม่มีเส้น วาดเป็นขีดแนวนอนให้เห็นระดับค่า
     if (g.count == 1) {
-        tft.drawFastHLine(g.x, toY(wval(g, 0)), plotW, g.color);
+        gfx.drawFastHLine(g.x, toY(wval(g, 0)) - offsetY, plotW, g.color);
         return;
     }
 
@@ -983,40 +969,21 @@ void drawLineChart(const Widget &g) {
         int16_t cy = toY(wval(g, i));
 
         if (g.filled) {
-            // ระบายจากเส้นถึงขอบล่างของกรอบ ทีละคอลัมน์ระหว่างสองจุด
             for (int16_t sx = px; sx <= cx; sx++) {
                 float t = (cx > px) ? (float)(sx - px) / (float)(cx - px) : 0.0f;
                 int16_t sy = (int16_t)(py + t * (cy - py));
-                tft.drawFastVLine(sx, sy, g.y + g.h - sy, g.color2);
+                gfx.drawFastVLine(sx, sy - offsetY, g.y + g.h - sy, g.color2);
             }
         }
 
-        tft.drawLine(px, py, cx, cy, g.color);
+        gfx.drawLine(px, py - offsetY, cx, cy - offsetY, g.color);
         px = cx;
         py = cy;
     }
 }
 
-// Donut / Pie — สัดส่วนต่อยอดรวมเท่านั้น ค่าลบไม่มีความหมายจึงตัดออก
-// วาดด้วยการยิงเส้นรัศมีทีละองศา เพราะ Adafruit_GFX ไม่มี fillArc
-// hole=0 ได้พายเต็มวง, hole>0 เจาะรูกลางเป็น % ของรัศมี
-// เดิมยิงเส้นรัศมีทีละครึ่งองศา (drawLine จากรัศมีในไปนอก) แล้วพบบนฮาร์ดแวร์จริง
-// ว่าขอบนอกแหว่งเป็นซี่ๆ ที่แนวทแยง — สาเหตุคือ (int16_t) ตัดทศนิยมเข้าหาศูนย์
-// ปัดรัศมีจริงของปลายเส้นไม่เท่ากันทุกมุม (ที่ 45° ได้ 63.64 ไม่ใช่ 65 ที่ตั้งใจ)
-// ทำให้ขอบนอกแกว่ง ~1.4px และ 25% ของเส้นวาดทับตำแหน่งเดิมเปล่าๆ
-// เปลี่ยนมาใช้ fillTriangle เป็นพัด (เสี้ยวละ ≤20° กันคอร์ดเว้าจนเห็นเหลี่ยม)
-// จากจุดศูนย์กลางออกไปถึง rOut แล้วเจาะรูกลางด้วยวงกลมทึบทับ
-// ผลจากการจำลอง: รูในเนื้อวงเหลือ 0% (จากเดิม 3.55%) และถูกกว่าด้วย — เฉลี่ย
-// ต้องมีสามเหลี่ยมแค่ ~18 รูปเทียบ drawLine 722 ครั้งสำหรับวงเต็ม
-// วาดช้า (ผู้ใช้รายงาน) เพราะ cosf/sinf เป็น float software emulation บน ESP8266
-// (ไม่มี FPU ฮาร์ดแวร์) แพงกว่าการวาดเองมาก — ตามไอเดียจาก fillArc2 ของ bodmer
-// (forum.arduino.cc/t/adafruit_gfx-fillarc/397741) จึงลดจำนวนครั้งที่เรียก
-// สองทาง: (1) ขยายเสี้ยวจาก 8° เป็น 20° — sagitta ที่ rOut สูงสุด ~120px ยังต่ำกว่า
-// 1px (65*[1-cos10°]≈0.99px) จึงยังไม่เห็นเหลี่ยม แต่ลดจำนวนเสี้ยวลง ~60%
-// (2) จุดเริ่มของเสี้ยวถัดไปคือจุดจบของเสี้ยวก่อน ไม่ต้องคำนวณ cosf/sinf ซ้ำ
-// สองข้อรวมกันลด cosf/sinf ต่อวงจาก ~180 ครั้งเหลือ ~19 ครั้ง (~90%)
-void drawDonut(const Widget &g) {
-    // จานสีวนใช้ตามลำดับ segment — ผู้ใช้ส่งสีเองไม่ได้เพราะ 1 widget มีสีหลักสองช่อง
+// Donut / Pie chart
+void drawDonut(const Widget &g, Adafruit_GFX &gfx = tft, int16_t offsetY = 0) {
     static const uint16_t palette[] = {
         0x07E0, 0xFD20, 0x001F, 0xF800, 0x07FF, 0xFFE0, 0xF81F, 0x8410
     };
@@ -1029,7 +996,6 @@ void drawDonut(const Widget &g) {
     }
     if (total <= 0.0f) return;
 
-    // วงกลมต้องกลม จึงใช้ด้านที่สั้นกว่าเป็นตัวคุมรัศมี
     const int16_t side = (g.w < g.h) ? g.w : g.h;
     const int16_t rOut = side / 2;
     const int16_t rIn = (int16_t)(rOut * (g.hole > 95 ? 95 : g.hole) / 100);
@@ -1037,10 +1003,7 @@ void drawDonut(const Widget &g) {
     const int16_t cy = g.y + g.h / 2;
     if (rOut < 4) return;
 
-    float angle = -90.0f; // เริ่มที่ 12 นาฬิกา ตามที่คนอ่านกราฟวงกลมคาด
-
-    // จุดบนขอบนอกที่ตำแหน่ง angle ปัจจุบัน — คำนวณครั้งเดียวตอนเริ่ม แล้วรีไซเคิล
-    // เป็นจุดเริ่มของเสี้ยวถัดไปเรื่อยๆ กัน cosf/sinf ซ้ำที่จุดเดียวกันสองครั้ง
+    float angle = -90.0f;
     float rad0 = angle * 0.01745329f;
     int16_t xPrev = cx + (int16_t)roundf(cosf(rad0) * rOut);
     int16_t yPrev = cy + (int16_t)roundf(sinf(rad0) * rOut);
@@ -1052,54 +1015,43 @@ void drawDonut(const Widget &g) {
         float sweep = v / total * 360.0f;
         uint16_t col = palette[i % paletteCount];
 
-        // เสี้ยวไม่เกิน 20° ต่อชิ้น — ที่ rOut สูงสุด ~120px บนจอนี้ ความเว้าของคอร์ด
-        // (sagitta) ที่ 20° ยังต่ำกว่า 1px จึงไม่เห็นเหลี่ยม แต่เรียก cosf/sinf น้อยลง
-        // กว่าเดิม (8°) ~60% — cosf/sinf เป็น software float บน ESP8266 (ไม่มี FPU)
-        // แพงกว่าการวาดเองมาก ตามไอเดียจาก fillArc2 ของ bodmer
-        // (forum.arduino.cc/t/adafruit_gfx-fillarc/397741)
         uint8_t n = (uint8_t)(sweep / 20.0f) + 1;
         float step = sweep / n;
         for (uint8_t k = 0; k < n; k++) {
             float a1 = (angle + (k + 1) * step) * 0.01745329f;
             int16_t x1 = cx + (int16_t)roundf(cosf(a1) * rOut);
             int16_t y1 = cy + (int16_t)roundf(sinf(a1) * rOut);
-            tft.fillTriangle(cx, cy, xPrev, yPrev, x1, y1, col);
+            gfx.fillTriangle(cx, cy - offsetY, xPrev, yPrev - offsetY, x1, y1 - offsetY, col);
             xPrev = x1;
             yPrev = y1;
         }
         angle += sweep;
-        yield(); // สูงสุด ~18 สามเหลี่ยมต่อวง แต่ยังคืน CPU ให้ SDK ทุก segment
+        yield();
     }
 
-    // เจาะรูกลาง — สมมติพื้นหลังเป็นดำเสมอ เหมือน widget อื่นในชุดนี้ที่วาดบนจอที่
-    // fillScreen(BLACK) มาก่อนแล้ว ถ้าจะซ้อนโดนัทบนพื้นสีอื่นต้องแก้จุดนี้เพิ่ม
-    if (rIn > 0) tft.fillCircle(cx, cy, rIn, ST77XX_BLACK);
+    if (rIn > 0) gfx.fillCircle(cx, cy - offsetY, rIn, ST77XX_BLACK);
 
-    // ข้อความกลางโดนัท เช่นยอดรวม — วางได้เฉพาะเมื่อรูใหญ่พอ
     if (g.label[0] && rIn >= 14) {
-        int16_t tw = (int16_t)strlen(g.label) * 6; // ฟอนต์ในตัว 6px ต่อตัวอักษร
-        tft.setTextSize(1);
-        tft.setTextColor(g.color);
-        tft.setCursor(cx - tw / 2, cy - 4);
-        tft.print(g.label);
+        int16_t tw = (int16_t)strlen(g.label) * 6;
+        gfx.setTextSize(1);
+        gfx.setTextColor(g.color);
+        gfx.setCursor(cx - tw / 2, cy - 4 - offsetY);
+        gfx.print(g.label);
     }
 }
 
-// KPI card — ตัวเลขสรุปค่าเดียว ป้ายกำกับตัวเล็กด้านบน
-// ใช้ฟอนต์ในตัวของ GFX ไม่ใช่ฟอนต์ไทย เพราะต้องรู้ความกว้างเพื่อจัดกลาง
-void drawKpi(const Widget &g) {
-    if (g.axis) tft.drawRect(g.x, g.y, g.w, g.h, DASH_GRID_COLOR);
+// KPI card
+void drawKpi(const Widget &g, Adafruit_GFX &gfx = tft, int16_t offsetY = 0) {
+    if (g.axis) gfx.drawRect(g.x, g.y - offsetY, g.w, g.h, DASH_GRID_COLOR);
 
-    // ป้ายกำกับ 1x บนสุดของการ์ด - ใช้ g.text
     if (g.text[0]) {
         int16_t tw = (int16_t)strlen(g.text) * 6;
-        tft.setTextSize(1);
-        tft.setTextColor(DASH_MUTED_COLOR);
-        tft.setCursor(g.x + (g.w - tw) / 2, g.y + 4);
-        tft.print(g.text);
+        gfx.setTextSize(1);
+        gfx.setTextColor(DASH_MUTED_COLOR);
+        gfx.setCursor(g.x + (g.w - tw) / 2, g.y + 4 - offsetY);
+        gfx.print(g.text);
     }
 
-    // ตัวเลขหลัก: ใช้ label ถ้าส่งมา (จัดรูปแบบฝั่ง HA ได้อิสระ) ไม่งั้นพิมพ์จาก data[0]
     char buf[DASH_LABEL_LEN];
     if (g.label[0]) {
         strlcpy(buf, g.label, sizeof(buf));
@@ -1109,7 +1061,6 @@ void drawKpi(const Widget &g) {
         return;
     }
 
-    // ย่อ scale ลงจนพอดีกรอบ ดีกว่าปล่อยตัวเลขล้นออกนอกการ์ด
     uint8_t sc = (g.scale < 1) ? 1 : g.scale;
     int16_t len = (int16_t)strlen(buf);
     while (sc > 1 && len * 6 * sc > g.w - 4) sc--;
@@ -1119,30 +1070,29 @@ void drawKpi(const Widget &g) {
     uint16_t col = g.color;
     if (g.hasThreshold && g.count > 0 && wval(g, 0) >= g.threshold) col = g.color2;
 
-    tft.setTextSize(sc);
-    tft.setTextColor(col);
-    // จัดกลางกรอบ เผื่อที่ป้ายกำกับด้านบน 10px เมื่อมีป้าย
+    gfx.setTextSize(sc);
+    gfx.setTextColor(col);
     int16_t top = g.y + (g.text[0] ? 10 : 0);
     int16_t boxH = g.h - (g.text[0] ? 10 : 0);
-    tft.setCursor(g.x + (g.w - tw) / 2, top + (boxH - th) / 2);
-    tft.print(buf);
+    gfx.setCursor(g.x + (g.w - tw) / 2, top + (boxH - th) / 2 - offsetY);
+    gfx.print(buf);
 }
 
-// เกจแนวนอนค่าเดียว — เทียบค่ากับช่วง vmin..vmax ที่ตรึงไว้
-void drawGauge(const Widget &g) {
+// เกจแนวนอนค่าเดียว
+void drawGauge(const Widget &g, Adafruit_GFX &gfx = tft, int16_t offsetY = 0) {
     if (g.count == 0) return;
 
     float lo = g.vmin, hi = g.vmax;
-    if (hi - lo < 0.0001f) { lo = 0.0f; hi = 100.0f; } // ไม่ส่งช่วงมา ถือเป็นเปอร์เซ็นต์
+    if (hi - lo < 0.0001f) { lo = 0.0f; hi = 100.0f; }
 
     float frac = (wval(g, 0) - lo) / (hi - lo);
     if (frac < 0.0f) frac = 0.0f;
     if (frac > 1.0f) frac = 1.0f;
 
-    tft.drawRect(g.x, g.y, g.w, g.h, DASH_GRID_COLOR);
+    gfx.drawRect(g.x, g.y - offsetY, g.w, g.h, DASH_GRID_COLOR);
     int16_t fillW = (int16_t)(frac * (g.w - 2));
     uint16_t col = (g.hasThreshold && wval(g, 0) >= g.threshold) ? g.color2 : g.color;
-    if (fillW > 0) tft.fillRect(g.x + 1, g.y + 1, fillW, g.h - 2, col);
+    if (fillW > 0) gfx.fillRect(g.x + 1, g.y + 1 - offsetY, fillW, g.h - 2, col);
 }
 
 // ---------------------------------------------------------------------------
@@ -1246,12 +1196,9 @@ String buildPromptPayPayload(const char* id, float amount) {
 // qrencode() ตรงๆ แล้ววาด module เองด้วย fillRect รวมแนวนอนเป็นแถบเดียวต่อ run
 // (สีเดียวกันติดกันในแนว x) กัน SPI call ถี่เกินจำเป็น แบบเดียวกับที่ทำใน drawDonut
 void drawQr(const char* text, int16_t x, int16_t y, int16_t w, int16_t h,
-            uint16_t bg, uint16_t fg) {
+            uint16_t bg, uint16_t fg, Adafruit_GFX &gfx = tft, int16_t offsetY = 0) {
     if (!text || !text[0]) return;
 
-    // strinbuf ยาว 270 ไบต์ (ประกาศจริงใน frame.c) แต่ qrencode.h ประกาศแบบ
-    // extern unsigned char strinbuf[] (incomplete type) เอา sizeof() ไม่ได้ — ต้องฮาร์ดโค้ด
-    // ตรึง VERSION7/ECC-L ใช้จริงแค่ ~150 ไบต์แรก ตัดข้อความยาวเกินไว้ก่อนกันเผื่อ
     const size_t STRINBUF_LEN = 270;
     size_t len = strlen(text);
     if (len > 150) len = 150;
@@ -1259,17 +1206,16 @@ void drawQr(const char* text, int16_t x, int16_t y, int16_t w, int16_t h,
     memcpy(strinbuf, text, len);
     strinbuf[len] = 0;
 
-    qrencode(); // strinbuf เข้า, qrframe ออก เป็นตาราง WD x WD (45x45) บิตแพ็ก
+    qrencode();
 
     const int16_t side = (w < h) ? w : h;
-    int16_t px = side / WD; // ขนาดพิกเซลต่อ module
+    int16_t px = side / WD;
     if (px < 1) px = 1;
     const int16_t qrSize = px * WD;
-    const int16_t ox = x + (w - qrSize) / 2; // จัดกลางกรอบที่ขอ
+    const int16_t ox = x + (w - qrSize) / 2;
     const int16_t oy = y + (h - qrSize) / 2;
 
-    // เคลียร์พื้นด้วย bg ก่อน ครอบคลุม quiet zone รอบขอบด้วย
-    tft.fillRect(x, y, w, h, bg);
+    gfx.fillRect(x, y - offsetY, w, h, bg);
 
     for (uint8_t yy = 0; yy < WD; yy++) {
         uint8_t xx = 0;
@@ -1277,8 +1223,8 @@ void drawQr(const char* text, int16_t x, int16_t y, int16_t w, int16_t h,
             uint8_t bit = QRBIT(xx, yy);
             uint8_t runStart = xx;
             while (xx < WD && QRBIT(xx, yy) == bit) xx++;
-            if (bit) { // วาดเฉพาะ module มืด เพราะพื้น bg ทาไว้แล้วทั้งกรอบ
-                tft.fillRect(ox + runStart * px, oy + yy * px, (xx - runStart) * px, px, fg);
+            if (bit) {
+                gfx.fillRect(ox + runStart * px, oy + yy * px - offsetY, (xx - runStart) * px, px, fg);
             }
         }
         yield();
@@ -2056,72 +2002,62 @@ void renderLiveBand(GFXcanvas16 &canvas, int16_t bandY, int16_t bandH) {
 }
 
 void renderDashboardBand(GFXcanvas16 &canvas, int16_t bandY, int16_t bandH) {
+    // Pass 1: วาดกราฟทุกชนิด
     for (uint8_t i = 0; i < dash.widgetCount; i++) {
+        yield();
+        const Widget &g = dash.widgets[i];
+        switch (g.type) {
+            case W_CANDLES: if (g.count) drawCandles(g, canvas, bandY);    break;
+            case W_COLUMN:  if (g.count) drawColumns(g, canvas, bandY);    break;
+            case W_HBAR:    if (g.count) drawHBars(g, canvas, bandY);      break;
+            case W_LINE:    if (g.count) drawLineChart(g, canvas, bandY);  break;
+            case W_DONUT:   if (g.count) drawDonut(g, canvas, bandY);      break;
+            case W_KPI:     drawKpi(g, canvas, bandY);                     break;
+            case W_GAUGE:   drawGauge(g, canvas, bandY);                   break;
+            default: break;
+        }
+    }
+
+    // Pass 2: วาด primitive และข้อความ
+    for (uint8_t i = 0; i < dash.widgetCount; i++) {
+        yield();
         const Widget &g = dash.widgets[i];
         switch (g.type) {
             case W_TEXT:
-                if (g.text[0]) {
-                    drawThaiStringScaled(g.x, g.y - bandY, g.text, g.color, g.scale, canvas);
-                }
+                if (g.text[0]) drawThaiStringScaled(g.x, g.y - bandY, g.text, g.color, g.scale, canvas);
                 break;
             case W_RECT:
                 if (g.filled) canvas.fillRect(g.x, g.y - bandY, g.w, g.h, g.color);
                 else          canvas.drawRect(g.x, g.y - bandY, g.w, g.h, g.color);
                 break;
             case W_HLINE:
-                canvas.drawFastHLine(g.x, g.y - bandY, g.w, g.color);
+                if (g.hasRef) {
+                    int16_t rx, ry, rw, rh;
+                    float lo, hi;
+                    if (findChartScale(g.refType, rx, ry, rw, rh, lo, hi)) {
+                        float span = hi - lo;
+                        if (span < 0.0001f) span = 0.0001f;
+                        float frac = (g.refValue - lo) / span;
+                        if (frac < 0.0f) frac = 0.0f;
+                        if (frac > 1.0f) frac = 1.0f;
+                        int16_t yMapped = ry + rh - 1 - (int16_t)(frac * (rh - 1));
+                        canvas.drawFastHLine(rx, yMapped - bandY, rw, g.color);
+                    }
+                } else {
+                    canvas.drawFastHLine(g.x, g.y - bandY, g.w, g.color);
+                }
                 break;
             case W_VLINE:
                 canvas.drawFastVLine(g.x, g.y - bandY, g.h, g.color);
                 break;
-            case W_KPI:
-                if (g.text[0]) {
-                    canvas.setTextSize(1);
-                    canvas.setTextColor(DASH_MUTED_COLOR);
-                    canvas.setCursor(g.x, g.y - bandY);
-                    canvas.print(g.text);
-                }
-                if (g.label[0]) {
-                    canvas.setTextSize(2);
-                    canvas.setTextColor(g.color);
-                    canvas.setCursor(g.x, g.y + 14 - bandY);
-                    canvas.print(g.label);
-                }
-                break;
-            case W_GAUGE:
-                canvas.drawRect(g.x, g.y - bandY, g.w, g.h, DASH_GRID_COLOR);
-                if (g.count > 0) {
-                    float v = wval(g, 0);
-                    float lo = g.vmin, hi = g.vmax;
-                    if (hi - lo < 0.0001f) { lo = 0.0f; hi = 100.0f; }
-                    float frac = (v - lo) / (hi - lo);
-                    if (frac < 0.0f) frac = 0.0f;
-                    if (frac > 1.0f) frac = 1.0f;
-                    int16_t fillW = (int16_t)(frac * (g.w - 2));
-                    if (fillW > 0) canvas.fillRect(g.x + 1, g.y + 1 - bandY, fillW, g.h - 2, g.color);
-                }
-                break;
-            case W_LINE:
-                if (g.count > 1) {
-                    float lo, hi;
-                    widgetRange(g, lo, hi, 1);
-                    float span = hi - lo;
-                    int16_t prevX = 0, prevY = 0;
-                    for (uint8_t k = 0; k < g.count; k++) {
-                        float v = wval(g, k);
-                        float frac = (v - lo) / span;
-                        int16_t px = g.x + (k * (g.w - 1)) / (g.count - 1);
-                        int16_t py = g.y + g.h - 1 - (int16_t)(frac * (g.h - 1));
-                        if (k > 0) {
-                            canvas.drawLine(prevX, prevY - bandY, px, py - bandY, g.color);
-                        }
-                        prevX = px; prevY = py;
-                    }
-                }
-                break;
-            default:
-                break;
+            default: break;
         }
+    }
+
+    // QR code (ถ้ามี)
+    if (dash.qrText[0] != '\0') {
+        drawQr(dash.qrText, dash.qrX, dash.qrY, dash.qrW, dash.qrH,
+               dash.qrBg, dash.qrFg, canvas, bandY);
     }
 }
 
