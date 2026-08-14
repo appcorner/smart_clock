@@ -116,6 +116,7 @@ struct Widget {
 };
 
 struct Dashboard {
+    char bgImg[64] = "";
     Widget widgets[DASH_MAX_WIDGETS];
     uint8_t widgetCount = 0;
     float pool[DASH_POOL_SIZE];
@@ -1304,8 +1305,12 @@ bool findChartScale(const char* refType, int16_t &rx, int16_t &ry, int16_t &rw, 
 }
 
 void renderDashboard() {
-    // ล้างทั้งจอเฉพาะตอนวาด frame ใหม่ ไม่ได้ล้างทุกรอบ loop
-    tft.fillScreen(ST77XX_BLACK);
+    // ล้างหรือวาดภาพพื้นหลังเฉพาะตอนวาด frame ใหม่
+    if (dash.bgImg[0] != '\0' && LittleFS.exists(dash.bgImg)) {
+        renderJpgImage(dash.bgImg);
+    } else {
+        tft.fillScreen(ST77XX_BLACK);
+    }
 
     // มี QR อยู่ในเฟรมนี้ไหม — ใช้หรี่จอกันสว่างจ้าจนกล้องมือถือโฟกัสไม่ติด (ผู้ใช้แจ้งบัค)
     bool hasQr = (dash.qrText[0] != '\0');
@@ -1988,6 +1993,13 @@ void handleApiDraw() {
     dash.widgetCount = 0;
     dash.poolUsed = 0;
     dash.qrText[0] = '\0';  // ล้าง QR เก่า
+    dash.bgImg[0] = '\0';   // ล้างภาพพื้นหลังเก่า
+
+    // อ่านพาธภาพพื้นหลัง (ถ้ามี)
+    if (doc.containsKey("bg_img")) {
+        const char* bg = doc["bg_img"] | "";
+        strlcpy(dash.bgImg, bg, sizeof(dash.bgImg));
+    }
 
     // ตัดตัวเลขจากคลังกลาง คืนจำนวนจุดที่รับได้จริง (อาจน้อยกว่าที่ส่งมาถ้าคลังเต็ม)
     // valsPerPoint>1 สำหรับ candles ที่หนึ่งจุดกิน 4 ช่อง — ต้องลงครบชุดหรือไม่ลงเลย
