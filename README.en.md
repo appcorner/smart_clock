@@ -247,24 +247,32 @@ The binary file is not stored in this repo (excluded via `.gitignore` to keep th
 
 **Option 1 — Download from the Releases page (recommended)**
 Go to this repo's **Releases** page and download the attached file for the latest version:
-- `SDP_v3.5.0.bin` — usable both for initial Serial flashing and for OTA updates
+- `SDP_v3.6.1.bin` — for production use (compact, optimized for initial flashing and OTA updates)
+- `SDP_v3.6.1_debug.bin` — for developers (with Serial Debug log enabled at 115200 bps)
 
 **Option 2 — Compile it yourself with PlatformIO (recommended for developers)**
-The project is already set up for PlatformIO; all libraries are specified in `platformio.ini` and download automatically:
+The project is configured in `platformio.ini` with both Release and Debug environments:
 
 ```bash
+# Compile Release mode (default — size-optimized for production & OTA)
 pio run
+# or explicitly specify env: pio run -e release
+
+# Compile Debug mode (with Serial logs at 115200 bps)
+pio run -e debug
 ```
 
-The `.bin` file gets built at `.pio/build/geekmagic/firmware.bin`, and a post-build script automatically copies it to `build_esp8266/SDP_v<version>.bin` (reading the version number from `FW_VERSION` in the source)
+The `.bin` file is compiled and automatically copied by a post-build script to `build_esp8266/SDP_v<version>.bin` (or `SDP_v<version>_debug.bin`), reading the version number from `FW_VERSION` in the source code.
 
 Other frequently used commands:
 
 ```bash
-pio run -t upload --upload-port COM3
+# Flash via Serial cable (Release mode)
+pio run -e release -t upload --upload-port COM3
 ```
 
 ```bash
+# Open Serial Monitor
 pio device monitor -p COM3
 ```
 

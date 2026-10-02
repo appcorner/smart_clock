@@ -19,6 +19,23 @@
 
 #define FW_VERSION "3.6.1"
 
+// โหมด Debug Logging (ควบคุมผ่าน PlatformIO build_flags: -DENABLE_DEBUG=1 หรือ 0)
+#ifndef ENABLE_DEBUG
+#define ENABLE_DEBUG 0
+#endif
+
+#if ENABLE_DEBUG
+  template <typename... Args> inline void DEBUG_PRINT(Args&&... args) { Serial.print(args...); }
+  template <typename... Args> inline void DEBUG_PRINTLN(Args&&... args) { Serial.println(args...); }
+  template <typename... Args> inline void DEBUG_PRINTF(Args&&... args) { Serial.printf(args...); }
+  template <typename... Args> inline void DEBUG_PRINTF_P(Args&&... args) { Serial.printf_P(args...); }
+#else
+  template <typename... Args> inline void DEBUG_PRINT(Args&&...) {}
+  template <typename... Args> inline void DEBUG_PRINTLN(Args&&...) {}
+  template <typename... Args> inline void DEBUG_PRINTF(Args&&...) {}
+  template <typename... Args> inline void DEBUG_PRINTF_P(Args&&...) {}
+#endif
+
 // รหัสผ่านหน้าเว็บเริ่มต้น — ตัวเครื่องจะเตือนบนจอและบนหน้าเว็บจนกว่าจะเปลี่ยน
 #define DEFAULT_WEB_USER "admin"
 #define DEFAULT_WEB_PASS "smartclock"
@@ -143,7 +160,7 @@ size_t logBufferIndex = 0;
 bool logBufferFull = false;
 
 void appLog(const String &msg) {
-    Serial.println(msg);
+    DEBUG_PRINTLN(msg);
     size_t len = msg.length();
     for (size_t i = 0; i < len; i++) {
         logBuffer[logBufferIndex] = msg[i];
@@ -292,7 +309,7 @@ void saveConfigEEPROM() {
     EEPROM.put(0, sysConfig);
     EEPROM.commit();
     EEPROM.end();
-    Serial.println(F("Config Saved to EEPROM!"));
+    DEBUG_PRINTLN(F("Config Saved to EEPROM!"));
 }
 
 // อ่าน config จาก EEPROM พร้อม migration chain 0xAB -> 0xAC -> 0xAD -> 0xAE
@@ -313,8 +330,8 @@ void loadConfigEEPROM() {
             sysConfig.webUser[sizeof(sysConfig.webUser) - 1] = '\0';
             sysConfig.webPass[sizeof(sysConfig.webPass) - 1] = '\0';
             EEPROM.end();
-            Serial.println(F("Loaded Config from EEPROM (0xAE)."));
-            Serial.printf_P(PSTR("SSID: %s  lat=%.4f lon=%.4f gmt=%d\n"), sysConfig.ssid, sysConfig.lat, sysConfig.lon, sysConfig.gmtOffset);
+            DEBUG_PRINTLN(F("Loaded Config from EEPROM (0xAE)."));
+            DEBUG_PRINTF_P(PSTR("SSID: %s  lat=%.4f lon=%.4f gmt=%d\n"), sysConfig.ssid, sysConfig.lat, sysConfig.lon, sysConfig.gmtOffset);
             return;
         }
     }
@@ -343,7 +360,7 @@ void loadConfigEEPROM() {
             sysConfig.gmtOffset = 25200; // GMT+7 default
 
             EEPROM.end();
-            Serial.println(F("Migrated config 0xAD -> 0xAE."));
+            DEBUG_PRINTLN(F("Migrated config 0xAD -> 0xAE."));
             saveConfigEEPROM();
             return;
         }
@@ -373,7 +390,7 @@ void loadConfigEEPROM() {
             sysConfig.gmtOffset = 25200;
 
             EEPROM.end();
-            Serial.println(F("Migrated config 0xAC -> 0xAE (will geocode city)."));
+            DEBUG_PRINTLN(F("Migrated config 0xAC -> 0xAE (will geocode city)."));
             saveConfigEEPROM();
             return;
         }
@@ -400,14 +417,14 @@ void loadConfigEEPROM() {
             // webUser/webPass คงค่าเริ่มต้นไว้ ผู้ใช้ต้องตั้งรหัสใหม่เอง
 
             EEPROM.end();
-            Serial.println(F("Migrated config 0xAB -> 0xAE (web password reset to default)."));
+            DEBUG_PRINTLN(F("Migrated config 0xAB -> 0xAE (web password reset to default)."));
             saveConfigEEPROM();
             return;
         }
     }
 
     EEPROM.end();
-    Serial.println(F("No EEPROM Config found, using defaults."));
+    DEBUG_PRINTLN(F("No EEPROM Config found, using defaults."));
 }
 
 // Embedded Smart Web UI HTML in PROGMEM
@@ -1445,7 +1462,7 @@ bool geocodeCity() {
 
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
-        Serial.printf_P(PSTR("Geocode failed: HTTP %d\n"), code);
+        DEBUG_PRINTF_P(PSTR("Geocode failed: HTTP %d\n"), code);
         http.end();
         return false;
     }
@@ -1459,19 +1476,19 @@ bool geocodeCity() {
     http.end();
 
     if (err) {
-        Serial.printf_P(PSTR("Geocode JSON error: %s\n"), err.c_str());
+        DEBUG_PRINTF_P(PSTR("Geocode JSON error: %s\n"), err.c_str());
         return false;
     }
 
     JsonArray results = doc["results"].as<JsonArray>();
     if (results.isNull() || results.size() == 0) {
-        Serial.println(F("Geocode: city not found"));
+        DEBUG_PRINTLN(F("Geocode: city not found"));
         return false;
     }
 
     sysConfig.lat = results[0]["latitude"] | 0.0f;
     sysConfig.lon = results[0]["longitude"] | 0.0f;
-    Serial.printf_P(PSTR("Geocoded %s -> %.4f, %.4f\n"), sysConfig.city, sysConfig.lat, sysConfig.lon);
+    DEBUG_PRINTF_P(PSTR("Geocoded %s -> %.4f, %.4f\n"), sysConfig.city, sysConfig.lat, sysConfig.lon);
     saveConfigEEPROM();
     return true;
 }
@@ -1498,7 +1515,7 @@ bool fetchWeather() {
 
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
-        Serial.printf_P(PSTR("Weather failed: HTTP %d\n"), code);
+        DEBUG_PRINTF_P(PSTR("Weather failed: HTTP %d\n"), code);
         http.end();
         return false;
     }
@@ -1512,13 +1529,13 @@ bool fetchWeather() {
     http.end();
 
     if (err) {
-        Serial.printf_P(PSTR("Weather JSON error: %s\n"), err.c_str());
+        DEBUG_PRINTF_P(PSTR("Weather JSON error: %s\n"), err.c_str());
         return false;
     }
 
     JsonObject current = doc["current"];
     if (current.isNull() || !current.containsKey("temperature_2m")) {
-        Serial.println(F("Weather: unexpected payload"));
+        DEBUG_PRINTLN(F("Weather: unexpected payload"));
         return false;
     }
 
@@ -1527,7 +1544,7 @@ bool fetchWeather() {
     weather.valid = true;
     weather.stale = false;
     weather.lastOk = millis();
-    Serial.printf_P(PSTR("Weather: %.1fC code=%d (%s)\n"), weather.tempC, weather.code, weatherCodeToThai(weather.code));
+    DEBUG_PRINTF_P(PSTR("Weather: %.1fC code=%d (%s)\n"), weather.tempC, weather.code, weatherCodeToThai(weather.code));
     return true;
 }
 
@@ -2169,7 +2186,7 @@ void handleApiDraw() {
 
     // กันไว้แบบเดียวกับตอนดึงทอง — ถ้า heap ไม่พอจอง document ให้ตอบ 503 ตรงๆ
     if (ESP.getFreeHeap() < DASH_DOC_SIZE + 8000) {
-        Serial.printf_P(PSTR("Draw: rejected, heap too low (%u)\n"), ESP.getFreeHeap());
+        DEBUG_PRINTF_P(PSTR("Draw: rejected, heap too low (%u)\n"), ESP.getFreeHeap());
         server.send(503, F("text/plain"), F("heap too low, try again"));
         return;
     }
@@ -2434,13 +2451,13 @@ void handleOTAUpdate() {
 
     if (!server.authenticate(sysConfig.webUser, sysConfig.webPass)) {
         if (upload.status == UPLOAD_FILE_START) {
-            Serial.println(F("OTA rejected: unauthorized"));
+            DEBUG_PRINTLN(F("OTA rejected: unauthorized"));
         }
         return;
     }
 
     if (upload.status == UPLOAD_FILE_START) {
-        Serial.printf_P(PSTR("Update Start: %s\n"), upload.filename.c_str());
+        DEBUG_PRINTF_P(PSTR("Update Start: %s\n"), upload.filename.c_str());
         uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & ~0xFFF;
         if (!Update.begin(maxSketchSpace)) {
             Update.printError(Serial);
@@ -2451,7 +2468,7 @@ void handleOTAUpdate() {
         }
     } else if (upload.status == UPLOAD_FILE_END) {
         if (Update.end(true)) {
-            Serial.printf_P(PSTR("Update Success: %u bytes\n"), upload.totalSize);
+            DEBUG_PRINTF_P(PSTR("Update Success: %u bytes\n"), upload.totalSize);
         } else {
             Update.printError(Serial);
         }
@@ -2588,8 +2605,8 @@ void maintainWifi() {
 
     if (WiFi.status() == WL_CONNECTED) {
         if (wifiLostSince != 0) {
-            Serial.print(F("Wi-Fi reconnected. IP: "));
-            Serial.println(WiFi.localIP());
+            DEBUG_PRINT(F("Wi-Fi reconnected. IP: "));
+            DEBUG_PRINTLN(WiFi.localIP());
             wifiLostSince = 0;
             // กลับมาต่อได้แล้ว ปิด AP ที่เปิดไว้ตอนหลุด
             if (isAPModeActive) {
@@ -2605,21 +2622,21 @@ void maintainWifi() {
     // เพิ่งหลุด — จำเวลาไว้เพื่อนับว่าหลุดมานานแค่ไหน
     if (wifiLostSince == 0) {
         wifiLostSince = millis();
-        Serial.println(F("Wi-Fi lost. Will retry."));
+        DEBUG_PRINTLN(F("Wi-Fi lost. Will retry."));
         updateWifiStatusLCD();
     }
 
     // ยิงต่อใหม่เป็นจังหวะ ไม่ใช่รัวทุกรอบ loop
     if (millis() - lastReconnectTry >= WIFI_RETRY_MS) {
         lastReconnectTry = millis();
-        Serial.println(F("Reconnecting to Wi-Fi..."));
+        DEBUG_PRINTLN(F("Reconnecting to Wi-Fi..."));
         WiFi.disconnect();
         WiFi.begin(sysConfig.ssid, sysConfig.password);
     }
 
     // หลุดนานเกินกำหนดและยังไม่ได้เปิด AP — เปิดให้ผู้ใช้เข้ามาแก้ค่าได้
     if (!isAPModeActive && millis() - wifiLostSince >= WIFI_AP_FALLBACK_MS) {
-        Serial.println(F("Wi-Fi down too long. Enabling AP mode for recovery."));
+        DEBUG_PRINTLN(F("Wi-Fi down too long. Enabling AP mode for recovery."));
         WiFi.mode(WIFI_AP_STA);
         WiFi.softAP("SmartClock-AP", "12345678");
         isAPModeActive = true;
@@ -2659,9 +2676,11 @@ void updateDataIfDue() {
 }
 
 void setup() {
+#if ENABLE_DEBUG
     Serial.begin(115200);
-    delay(1000);
-    Serial.println(F("\n=== GeekMagic SmallTV Firmware v" FW_VERSION " ==="));
+    delay(500);
+    DEBUG_PRINTLN(F("\n=== GeekMagic SmallTV Firmware v" FW_VERSION " (DEBUG) ==="));
+#endif
 
     // Active Low Backlight Fix
     pinMode(TFT_BL, OUTPUT);
@@ -2681,11 +2700,11 @@ void setup() {
 
     // Initialize LittleFS
     if (!LittleFS.begin()) {
-        Serial.println(F("LittleFS mount failed, formatting..."));
+        DEBUG_PRINTLN(F("LittleFS mount failed, formatting..."));
         LittleFS.format();
         LittleFS.begin();
     }
-    Serial.println(F("LittleFS mounted."));
+    DEBUG_PRINTLN(F("LittleFS mounted."));
 
     // Load EEPROM Persistent Config
     loadConfigEEPROM();
@@ -2709,13 +2728,13 @@ void setup() {
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.print(F("WiFi Connected! IP: "));
-        Serial.println(WiFi.localIP());
+        DEBUG_PRINT(F("WiFi Connected! IP: "));
+        DEBUG_PRINTLN(WiFi.localIP());
         isAPModeActive = false;
         WiFi.softAPdisconnect(true);
         drawBootStatus("ต่อสำเร็จ", 0);
     } else {
-        Serial.println(F("WiFi STA Failed. Enabling Smart AP Mode..."));
+        DEBUG_PRINTLN(F("WiFi STA Failed. Enabling Smart AP Mode..."));
         WiFi.mode(WIFI_AP_STA);
         WiFi.softAP("SmartClock-AP", "12345678");
         isAPModeActive = true;
@@ -2735,12 +2754,12 @@ void setup() {
         MDNS.addServiceTxt("http", "tcp", "vendor", "Custom");
         MDNS.addServiceTxt("http", "tcp", "api", "geekmagic");
         MDNS.addServiceTxt("http", "tcp", "version", FW_VERSION);
-        Serial.println(F("mDNS responder started: smartclock.local"));
+        DEBUG_PRINTLN(F("mDNS responder started: smartclock.local"));
     }
 
-    Serial.printf_P(PSTR("Web UI protected. user=%s\n"), sysConfig.webUser);
+    DEBUG_PRINTF_P(PSTR("Web UI protected. user=%s\n"), sysConfig.webUser);
     if (usingDefaultWebPass()) {
-        Serial.println(F("WARNING: still using the default web password. Change it at the web UI."));
+        DEBUG_PRINTLN(F("WARNING: still using the default web password. Change it at the web UI."));
     }
 
     // ดึงข้อมูลจริงรอบแรกทันทีที่ต่อเน็ตได้ ไม่ต้องรอครบรอบ interval
@@ -2771,20 +2790,20 @@ void loop() {
 
     // Dashboard TTL หมด — กลับหน้านาฬิกาเอง
     if (displayMode == MODE_DASHBOARD && millis() - dash.lastPush >= DASH_TTL_MS) {
-        Serial.println(F("Dashboard TTL expired. Back to clock."));
+        DEBUG_PRINTLN(F("Dashboard TTL expired. Back to clock."));
         dash.valid = false;
         switchToClock();
     }
 
     // Image TTL หมด — กลับหน้านาฬิกาเอง
     if (displayMode == MODE_IMAGE && millis() - lastImagePush >= IMAGE_TTL_MS) {
-        Serial.println(F("Image TTL expired. Back to clock."));
+        DEBUG_PRINTLN(F("Image TTL expired. Back to clock."));
         switchToClock();
     }
 
     // Live Message TTL หมด — กลับหน้านาฬิกาเอง
     if (displayMode == MODE_LIVE && millis() - lastLivePush >= LIVE_TTL_MS) {
-        Serial.println(F("Live message TTL expired. Back to clock."));
+        DEBUG_PRINTLN(F("Live message TTL expired. Back to clock."));
         switchToClock();
     }
 

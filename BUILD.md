@@ -54,35 +54,45 @@ cd smart_clock
 
 ### 3. คอมไพล์ firmware
 
-**คำสั่งพื้นฐาน:**
+โปรเจกต์รองรับ 2 Build Environments ใน `platformio.ini`:
+- **`release` (ค่าเริ่มต้น):** ปรับแต่งโค้ดให้มีขนาดเล็กที่สุด (`-Os`), ตัด dead code (`--gc-sections`), ปิด Serial Debug log ทั้งหมด เพื่อประหยัด Flash/RAM และเหมาะที่สุดสำหรับอัปเดต OTA
+- **`debug`:** เปิด Serial Log เต็มรูปแบบ (115200 bps), เปิด Core Debug และเปิด `esp8266_exception_decoder` สำหรับวิเคราะห์ Stack Trace
+
+**คำสั่งคอมไพล์:**
 ```bash
+# 🚀 โหมด Release (ค่าเริ่มต้น — สำหรับใช้งานจริงและ OTA)
 pio run
+# หรือระบุ environment ชัดเจน:
+pio run -e release
+
+# 🛠️ โหมด Debug (สำหรับเสียบสาย Serial พัฒนาและดีบัก)
+pio run -e debug
 ```
 
 **คำสั่งเสริม:**
 ```bash
-# Clean ก่อน build (แนะนำถ้าเคยมีปัญหา cache)
+# Clean ก่อน build (แนะนำถ้าเคยมีปัญหา cache หรือสลับ env)
 pio run -t clean
-pio run
+pio run -e release
 
 # Build พร้อม verbose output (ดู log ละเอียด)
-pio run -v
+pio run -e release -v
 ```
 
-**ผลลัพธ์ที่ได้:**
-- ไฟล์ `.pio/build/geekmagic/firmware.bin` (ไฟล์ดิบ)
-- ไฟล์ `build_esp8266/SDP_v<version>.bin` (คัดลอกโดย post-build script อัตโนมัติ)
-  - เลขเวอร์ชันอ่านจาก `#define FW_VERSION` ในไฟล์ `.ino` บรรทัดที่ 17
+**ผลลัพธ์ที่ได้ในโฟลเดอร์ `build_esp8266/`:**
+- โหมด Release: `build_esp8266/SDP_v<version>.bin` (เช่น `SDP_v3.6.1.bin` ขนาด ~606 KB)
+- โหมด Debug: `build_esp8266/SDP_v<version>_debug.bin` (เช่น `SDP_v3.6.1_debug.bin` ขนาด ~708 KB)
+*(คัดลอกและตั้งชื่อตาม `#define FW_VERSION` ในซอร์สโค้ดโดยอัตโนมัติ)*
 
-**ตัวอย่าง output ที่สำเร็จ:**
-```
-RAM:   [=====     ]  49.2% (used 40284 bytes from 81920 bytes)
-Flash: [=====     ]  48.5% (used 506191 bytes from 1044464 bytes)
-Building .pio/build/geekmagic/firmware.bin
-after_build([".pio\build\geekmagic\firmware.bin"], [".pio\build\geekmagic\firmware.elf"])
-[copy_firmware] -> D:\sandboxs\smart_clock\build_esp8266\SDP_v3.5.3.bin (498.4 KB)
-========================= [SUCCESS] Took 9.59 seconds =========================
-```
+**เปรียบเทียบระหว่าง Release และ Debug:**
+
+| คุณสมบัติ | 🚀 โหมด Release (`release`) | 🛠️ โหมด Debug (`debug`) |
+|---|---|---|
+| **การใช้งาน** | Flash ใช้งานจริง / อัปเดตผ่าน OTA | เสียบสาย USB พัฒนา / หาจุด Error |
+| **ขนาด Flash** | **~616 KB (59.1%)** | ~720 KB (69.0%) |
+| **ขนาดไฟล์ `.bin`** | **~606 KB** | ~708 KB |
+| **Serial Debug Log** | **ปิดทั้งหมด** (ไม่รบกวน Serial, ประหยัด Flash ~100 KB) | **เปิดใช้งาน** ที่ความเร็ว 115200 bps |
+| **ชื่อไฟล์ผลลัพธ์** | `SDP_v<ver>.bin` | `SDP_v<ver>_debug.bin` |
 
 ### 4. ตรวจสอบไฟล์ output
 ```bash
@@ -203,8 +213,13 @@ Hard resetting via RTS pin...
 
 #### ด้วย PlatformIO
 ```bash
-pio run -t upload --upload-port COM3
+# แฟลชโหมด Release (ค่าเริ่มต้น)
+pio run -e release -t upload --upload-port COM3
+
+# หรือแฟลชโหมด Debug
+pio run -e debug -t upload --upload-port COM3
 ```
+
 
 #### ด้วย Arduino IDE
 1. เลือก port ที่ถูกต้องใน **Tools → Port**

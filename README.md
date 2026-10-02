@@ -247,24 +247,32 @@ widget `qr` เข้ารหัส QR ตรึงที่ **VERSION 7 / ECC-
 
 **ทางที่ 1 — ดาวน์โหลดจากหน้า Releases (แนะนำ)**
 เข้าไปที่หน้า **Releases** ของ repo นี้ แล้วดาวน์โหลดไฟล์แนบของเวอร์ชันล่าสุด:
-- `SDP_v3.5.0.bin` — ใช้ได้ทั้งแฟลชครั้งแรกผ่านสาย Serial และอัปเดตแบบ OTA
+- `SDP_v3.6.1.bin` — สำหรับใช้งานจริง (ขนาดเล็ก กะทัดรัด เหมาะสำหรับแฟลชและอัปเดต OTA)
+- `SDP_v3.6.1_debug.bin` — สำหรับนักพัฒนา (เปิด Serial Debug Log 115200 bps)
 
 **ทางที่ 2 — คอมไพล์เองด้วย PlatformIO (แนะนำสำหรับนักพัฒนา)**
-โปรเจกต์ตั้งค่า PlatformIO ไว้ให้พร้อมแล้ว ไลบรารีทั้งหมดถูกระบุใน `platformio.ini` จึงถูกดาวน์โหลดอัตโนมัติ:
+โปรเจกต์ตั้งค่า PlatformIO ไว้ให้พร้อมแล้ว รองรับทั้งโหมด Release และ Debug:
 
 ```bash
+# คอมไพล์โหมด Release (ค่าเริ่มต้น — ขนาดเล็กสุดสำหรับใช้งานจริงและ OTA)
 pio run
+# หรือระบุ env ชัดเจน: pio run -e release
+
+# คอมไพล์โหมด Debug (เปิด Serial Log 115200 bps)
+pio run -e debug
 ```
 
-ไฟล์ `.bin` จะถูกสร้างที่ `.pio/build/geekmagic/firmware.bin` และมี post-build script คัดลอกไปไว้ที่ `build_esp8266/SDP_v<เวอร์ชัน>.bin` ให้อัตโนมัติ (อ่านเลขเวอร์ชันจาก `FW_VERSION` ในซอร์ส)
+ไฟล์ `.bin` จะถูกสร้างและมี post-build script คัดลอกไปไว้ที่ `build_esp8266/SDP_v<เวอร์ชัน>.bin` (หรือ `SDP_v<เวอร์ชัน>_debug.bin`) ให้อัตโนมัติ (อ่านเลขเวอร์ชันจาก `FW_VERSION` ในซอร์ส)
 
 คำสั่งอื่นที่ใช้บ่อย:
 
 ```bash
-pio run -t upload --upload-port COM3
+# แฟลชผ่านสาย Serial (โหมด Release)
+pio run -e release -t upload --upload-port COM3
 ```
 
 ```bash
+# เปิด Serial Monitor
 pio device monitor -p COM3
 ```
 

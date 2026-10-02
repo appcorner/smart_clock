@@ -31,12 +31,15 @@ def after_build(source, target, env):
         print("[copy_firmware] ไม่พบ %s ข้ามขั้นตอน copy" % firmware)
         return
 
+    env_name = env.subst("$PIOENV")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    dest = OUT_DIR / ("SDP_v%s.bin" % detect_version())
+    suffix = f"_{env_name}" if env_name == "debug" else ""
+    dest = OUT_DIR / ("SDP_v%s%s.bin" % (detect_version(), suffix))
     shutil.copyfile(firmware, dest)
 
     size_kb = dest.stat().st_size / 1024
-    print("[copy_firmware] -> %s (%.1f KB)" % (dest, size_kb))
+    print("[copy_firmware] [%s] -> %s (%.1f KB)" % (env_name, dest, size_kb))
 
 
 env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", after_build)  # noqa: F821
+

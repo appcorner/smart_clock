@@ -54,35 +54,45 @@ This file is already configured; no changes needed:
 
 ### 3. Compile the firmware
 
-**Basic command:**
+The project supports 2 Build Environments in `platformio.ini`:
+- **`release` (default):** Size-optimized (`-Os`), dead-code elimination (`--gc-sections`), all Serial Debug logs disabled to save Flash/RAM, ideal for production and OTA updates.
+- **`debug`:** Full Serial Debug log enabled (115200 bps), ESP Core Debug enabled, and `esp8266_exception_decoder` active for stack trace analysis.
+
+**Build commands:**
 ```bash
+# 🚀 Release mode (default — for production and OTA)
 pio run
+# or explicitly specify the environment:
+pio run -e release
+
+# 🛠️ Debug mode (for serial monitoring and development)
+pio run -e debug
 ```
 
 **Additional commands:**
 ```bash
-# Clean before build (recommended if you've had cache issues)
+# Clean before build (recommended if you've had cache issues or switched envs)
 pio run -t clean
-pio run
+pio run -e release
 
-# Build with verbose output (see detailed logs)
-pio run -v
+# Build with verbose output (detailed compiler logs)
+pio run -e release -v
 ```
 
-**Output files:**
-- `.pio/build/geekmagic/firmware.bin` (raw file)
-- `build_esp8266/SDP_v<version>.bin` (copied automatically by post-build script)
-  - Version number read from `#define FW_VERSION` in the `.ino` file at line 17
+**Output files in `build_esp8266/`:**
+- Release mode: `build_esp8266/SDP_v<version>.bin` (e.g., `SDP_v3.6.1.bin`, ~606 KB)
+- Debug mode: `build_esp8266/SDP_v<version>_debug.bin` (e.g., `SDP_v3.6.1_debug.bin`, ~708 KB)
+*(Automatically copied and named based on `#define FW_VERSION` in the source code)*
 
-**Example successful output:**
-```
-RAM:   [=====     ]  49.2% (used 40284 bytes from 81920 bytes)
-Flash: [=====     ]  48.5% (used 506191 bytes from 1044464 bytes)
-Building .pio/build/geekmagic/firmware.bin
-after_build([".pio\build\geekmagic\firmware.bin"], [".pio\build\geekmagic\firmware.elf"])
-[copy_firmware] -> D:\sandboxs\smart_clock\build_esp8266\SDP_v3.5.3.bin (498.4 KB)
-========================= [SUCCESS] Took 9.59 seconds =========================
-```
+**Comparison: Release vs Debug:**
+
+| Feature | 🚀 Release Mode (`release`) | 🛠️ Debug Mode (`debug`) |
+|---|---|---|
+| **Intended Use** | Production Flash / OTA Updates | USB Development / Error Troubleshooting |
+| **Flash Usage** | **~616 KB (59.1%)** | ~720 KB (69.0%) |
+| **`.bin` File Size** | **~606 KB** | ~708 KB |
+| **Serial Debug Log** | **Fully disabled** (saves ~100 KB Flash) | **Enabled** at 115200 bps |
+| **Output File** | `SDP_v<ver>.bin` | `SDP_v<ver>_debug.bin` |
 
 ### 4. Verify output file
 ```bash
@@ -203,8 +213,13 @@ Hard resetting via RTS pin...
 
 #### Using PlatformIO
 ```bash
-pio run -t upload --upload-port COM3
+# Flash Release mode (default)
+pio run -e release -t upload --upload-port COM3
+
+# Or flash Debug mode
+pio run -e debug -t upload --upload-port COM3
 ```
+
 
 #### Using Arduino IDE
 1. Select the correct port in **Tools → Port**
