@@ -17,7 +17,7 @@
 // (ตัด wrapper เฉพาะ SSD1306 ทิ้ง เอาแต่ core อัลกอริทึมที่ไม่ผูกจอ)
 #include "qrencode.h"
 
-#define FW_VERSION "3.6.1"
+#define FW_VERSION "3.6.2"
 
 // โหมด Debug Logging (ควบคุมผ่าน PlatformIO build_flags: -DENABLE_DEBUG=1 หรือ 0)
 #ifndef ENABLE_DEBUG
@@ -45,10 +45,15 @@
 #define GEOCODE_HOST "http://geocoding-api.open-meteo.com"
 #define WEATHER_HOST "http://api.open-meteo.com"
 #define GOLD_URL     "https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT"
+#define RATE_URL     "https://api.binance.th/api/v1/ticker/price?symbol=USDTTHB"
+#define DEFAULT_USDTHB_RATE 34.0f
+// ค่าคงที่แปลงหน่วย: (15.244 กรัม / 31.1035 กรัม) * (0.965 ความบริสุทธิ์ไทย / 0.995 มาตรฐานโลก) = 0.4753
+#define GOLD_CONVERSION_FACTOR 0.4753f
 
 // ระยะห่างการดึงข้อมูล — ถ่วงระหว่างความสดของข้อมูลกับการกวน API ฟรี
 #define WEATHER_INTERVAL_MS 600000UL  // 10 นาที
 #define GOLD_INTERVAL_MS    300000UL  // 5 นาที
+#define RATE_INTERVAL_MS    3600000UL // 1 ชั่วโมง (ค่าเงินบาท)
 #define RETRY_INTERVAL_MS   60000UL   // ดึงไม่สำเร็จ ให้ลองใหม่เร็วขึ้นเป็น 1 นาที
 #define HTTP_TIMEOUT_MS     8000
 
@@ -283,10 +288,12 @@ struct WeatherData {
     unsigned long lastOk = 0;
 };
 
-// ราคาทองจาก gold-api.com — ไม่มี % เปลี่ยนแปลงมาให้ จึงเทียบกับราคาครั้งก่อนเอง
+// ราคาทองคำแท่งไทย 96.5% คำนวณจาก PAXGUSDT * USDTHB * GOLD_CONVERSION_FACTOR (0.4753)
 struct GoldData {
-    float price = 0.0f;
-    float prevPrice = 0.0f; // ราคาครั้งก่อน ใช้ตัดสินสีของตัวเลข
+    float price = 0.0f;     // ราคาทองคำแท่งไทย (บาท)
+    float prevPrice = 0.0f; // ราคาไทยครั้งก่อน ใช้ตัดสินสีของตัวเลข
+    float paxgPrice = 0.0f; // ราคา PAXGUSDT ดั้งเดิม (USD)
+    float usdThb = DEFAULT_USDTHB_RATE; // อัตราแลกเปลี่ยน USD/THB ล่าสุด
     bool valid = false;
     bool stale = false;
     unsigned long lastOk = 0;
@@ -428,7 +435,7 @@ void loadConfigEEPROM() {
 }
 
 // Embedded Smart Web UI HTML in PROGMEM
-const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Smart Clock Pro</title><style>body{background:#0a0c10;color:#f3f4f6;font-family:sans-serif;padding:15px;text-align:center;margin:0}.card{background:rgba(22,27,34,0.85);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;margin:10px auto;max-width:420px}h1{color:#3b82f6;font-size:20px;margin:0 0 4px 0}h3{color:#93c5fd;margin:0 0 10px 0;font-size:15px}input,select{width:100%;padding:10px;margin:5px 0;border-radius:8px;border:1px solid #374151;background:#1f2937;color:#fff;box-sizing:border-box;font-size:14px}button{width:100%;padding:10px;margin:5px 0;border-radius:8px;border:none;font-weight:700;cursor:pointer;font-size:14px}.btn-blue{background:#3b82f6;color:#fff}.row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,0.06)}.k{color:#9ca3af}.v{color:#f3f4f6;font-weight:700}.v.old{color:#f59e0b}.v.up{color:#10b981}.v.down{color:#ef4444}.btn-green{background:#10b981;color:#fff}.btn-yellow{background:#f59e0b;color:#000}.status{font-size:13px;padding:6px 10px;border-radius:6px;margin:4px 0}.ok{background:#065f46;color:#6ee7b7}.info{background:#1e3a5f;color:#93c5fd}.warn{background:#7c2d12;color:#fdba74;border:1px solid #ea580c}label{display:block;text-align:left;font-size:13px;color:#9ca3af;margin-top:8px}.btn-red{background:#dc2626;color:#fff}.hint{font-size:12px;color:#6b7280;text-align:left;margin:6px 0 0 0}.ver{font-size:11px;color:#4b5563;margin-top:2px}</style></head><body><div class="card"><h1>⏰ Smart Clock Pro</h1><p id="wifiStatus" class="status info">กำลังโหลด...</p><p id="ver" class="ver"></p></div><div id="passWarnCard" class="card" style="display:none"><p class="status warn">⚠️ ยังใช้รหัสผ่านเริ่มต้นอยู่ ใครที่อยู่ในวง Wi-Fi เดียวกันก็เข้ามาแก้ค่าหรือเขียนเฟิร์มแวร์ทับได้ กรุณาตั้งรหัสใหม่ที่การ์ดด้านล่าง</p></div><div class="card"><h3>📊 ข้อมูลสดบนจอ</h3><div class="row"><span class="k">อากาศ</span><span><span id="wxVal" class="v">-</span><span id="wxDot" class="dot none"></span></span></div><div class="row"><span class="k">ราคาทอง PAXGUSDT</span><span><span id="goldVal" class="v">-</span><span id="goldDot" class="dot none"></span></span></div><p id="dataMeta" class="hint"></p><button id="refreshBtn" class="btn-green" onclick="doRefresh()">🔄 ดึงข้อมูลใหม่ตอนนี้</button><p class="hint">ปกติอากาศดึงใหม่ทุก 10 นาที ทองทุก 5 นาที ถ้าดึงไม่สำเร็จจะลองใหม่ทุก 1 นาที และคงค่าเดิมไว้บนจอพร้อมจุดเหลืองเตือน</p></div><div class="card"><h3>📶 ตั้งค่า Wi-Fi</h3><button class="btn-green" onclick="scanWifi()">🔍 สแกนหา Wi-Fi</button><select id="wifi_list"><option value="">กดสแกนก่อน...</option></select><label>รหัสผ่าน Wi-Fi</label><input type="password" id="pass" placeholder="รหัสผ่าน"><button class="btn-blue" onclick="saveWifi()">💾 บันทึกและรีสตาร์ท</button></div><div class="card"><h3>🌤️ ตั้งค่าเมือง</h3><label>ชื่อเมือง (ภาษาอังกฤษ)</label><input type="text" id="city" placeholder="เช่น Bangkok"><button id="cityBtn" class="btn-blue" onclick="saveCity()">💾 บันทึกเมือง</button></div><div class="card"><h3>💡 ความสว่างหน้าจอ</h3><input type="range" id="brightness" min="5" max="100" value="80" oninput="document.getElementById('brightnessVal').innerText=this.value+'%'" onchange="saveBrightness(this.value)"><p class="hint">ระดับปัจจุบัน: <span id="brightnessVal">80%</span> — ตอนโชว์ QR เครื่องจะหรี่ลงเองชั่วคราวให้กล้องมือถือโฟกัสง่ายขึ้น แล้วคืนค่านี้ตอนกลับหน้านาฬิกา</p></div><div class="card"><h3>🔒 รหัสผ่านหน้าเว็บ</h3><label>ชื่อผู้ใช้</label><input type="text" id="web_user" placeholder="admin" autocomplete="username"><label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label><input type="password" id="web_pass" placeholder="รหัสผ่านใหม่" autocomplete="new-password"><label>ยืนยันรหัสผ่านใหม่</label><input type="password" id="web_pass2" placeholder="พิมพ์ซ้ำอีกครั้ง" autocomplete="new-password"><button class="btn-red" onclick="saveAuth()">🔐 บันทึกรหัสผ่าน</button><p class="hint">หลังบันทึก เบราว์เซอร์จะถามรหัสใหม่ในการเข้าครั้งถัดไป ถ้าลืมรหัสต้องล้าง EEPROM ด้วยการแฟลชผ่านสาย</p></div><div class="card"><h3>🚀 อัปเดต Firmware (OTA)</h3><form method="POST" action="/update_ota" enctype="multipart/form-data"><input type="file" name="update" accept=".bin"><button type="submit" class="btn-yellow">⚡ อัปโหลด .bin</button></form></div><script>window.onload=function(){fetch('/config').then(r=>r.json()).then(d=>{document.getElementById('city').value=d.city||'';document.getElementById('web_user').value=d.web_user||'admin';document.getElementById('ver').innerText='Firmware v'+(d.version||'-');if(typeof d.brightness!=='undefined'){document.getElementById('brightness').value=d.brightness;document.getElementById('brightnessVal').innerText=d.brightness+'%';}let ws=document.getElementById('wifiStatus');ws.innerText='เชื่อมต่อ Wi-Fi: '+(d.ssid||'-');ws.className='status ok';if(d.default_pass){document.getElementById('passWarnCard').style.display='block';}renderData(d);}).catch(()=>{document.getElementById('wifiStatus').innerText='ไม่สามารถโหลดข้อมูลได้';});};function scanWifi(){let sel=document.getElementById('wifi_list');sel.innerHTML='<option>กำลังสแกน...</option>';fetch('/scanwifi').then(r=>r.json()).then(data=>{sel.innerHTML='';if(!data.length){sel.innerHTML='<option>ไม่พบ Wi-Fi</option>';return;}data.sort((a,b)=>b.rssi-a.rssi);data.forEach(item=>{let o=document.createElement('option');o.value=item.ssid;o.innerText=item.ssid+'  ('+item.rssi+' dBm)';sel.appendChild(o);});}).catch(()=>alert('สแกนไม่สำเร็จ'));}function saveAuth(){let u=document.getElementById('web_user').value.trim(),p=document.getElementById('web_pass').value,p2=document.getElementById('web_pass2').value;if(!u){alert('กรุณากรอกชื่อผู้ใช้');return;}if(p.length<8){alert('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');return;}if(p!==p2){alert('รหัสผ่านสองช่องไม่ตรงกัน');return;}fetch('/api/set?key=web_user&value='+encodeURIComponent(u)).then(r=>{if(!r.ok)throw new Error('ตั้งชื่อผู้ใช้ไม่สำเร็จ');return fetch('/api/set?key=web_pass&value='+encodeURIComponent(p));}).then(r=>{if(!r.ok)throw new Error('ตั้งรหัสผ่านไม่สำเร็จ');alert('บันทึกรหัสผ่านใหม่แล้ว ครั้งถัดไปที่เปิดหน้านี้เบราว์เซอร์จะถามรหัสใหม่');document.getElementById('web_pass').value='';document.getElementById('web_pass2').value='';document.getElementById('passWarnCard').style.display='none';}).catch(e=>alert(e.message));}function renderData(d){let w=d.weather||{},wEl=document.getElementById('wxVal'),wDot=document.getElementById('wxDot');if(w.valid){wEl.innerText=w.temp_c+'°C  '+(w.desc||'');wDot.className=w.stale?'dot stale':'dot fresh';wDot.title=w.stale?'ข้อมูลเก่า ดึงใหม่ไม่สำเร็จ':'ข้อมูลสด';}else{wEl.innerText='ยังไม่มีข้อมูล';wDot.className='dot none';wDot.title='ยังดึงไม่สำเร็จเลย';}let g=d.gold||{},gEl=document.getElementById('goldVal'),gDot=document.getElementById('goldDot');if(g.valid){gEl.innerText='$'+g.price;if(g.prev>0&&g.price>g.prev)gEl.style.color='#10b981';else if(g.prev>0&&g.price<g.prev)gEl.style.color='#ef4444';else gEl.style.color='#f3f4f6';gDot.className=g.stale?'dot stale':'dot fresh';gDot.title=g.stale?'ข้อมูลเก่า ดึงใหม่ไม่สำเร็จ':'ข้อมูลสด';}else{gEl.innerText='ยังไม่มีข้อมูล';gEl.style.color='#9ca3af';gDot.className='dot none';gDot.title='ยังดึงไม่สำเร็จเลย';}let meta=[];if(d.lat||d.lon)meta.push('พิกัด '+d.lat+', '+d.lon);if(d.heap)meta.push('heap '+d.heap+' bytes');document.getElementById('dataMeta').innerText=meta.join('  •  ');}function reloadData(){return fetch('/config').then(r=>r.json()).then(renderData);}function doRefresh(){let btn=document.getElementById('refreshBtn');btn.disabled=true;btn.innerText='⏳ กำลังดึง...';fetch('/refresh').then(r=>r.json()).then(()=>reloadData()).catch(()=>alert('ดึงข้อมูลไม่สำเร็จ')).finally(()=>{btn.disabled=false;btn.innerText='🔄 ดึงข้อมูลใหม่ตอนนี้';});}function saveCity(){let c=document.getElementById('city').value.trim();if(!c){alert('กรุณากรอกชื่อเมือง');return;}let btn=document.getElementById('cityBtn');btn.disabled=true;btn.innerText='⏳ กำลังค้นหาเมือง...';fetch('/api/set?key=city&value='+encodeURIComponent(c)).then(r=>r.text().then(t=>({ok:r.ok,text:t}))).then(res=>{if(!res.ok)throw new Error(res.text);if(res.text!=='OK')alert('บันทึกเมืองแล้ว แต่ยังดึงอากาศไม่ได้: '+res.text);else alert('บันทึกเมือง "'+c+'" แล้ว');return reloadData();}).catch(e=>alert('บันทึกเมืองไม่สำเร็จ: '+e.message)).finally(()=>{btn.disabled=false;btn.innerText='💾 บันทึกเมือง';});}function saveWifi(){let s=document.getElementById('wifi_list').value,p=document.getElementById('pass').value;if(!s){alert('กรุณาเลือก Wi-Fi ก่อน');return;}fetch('/api/set?key=wifi_ssid&value='+encodeURIComponent(s)).then(()=>fetch('/api/set?key=wifi_pass&value='+encodeURIComponent(p))).then(()=>{alert('บันทึกข้อมูล Wi-Fi ลง EEPROM เรียบร้อย! เครื่องกำลังรีบูตเพื่อเชื่อมต่อ...');setTimeout(()=>fetch('/restart'),500);});}function saveBrightness(v){fetch('/api/set?key=lcd_brightness&value='+encodeURIComponent(v)).catch(()=>alert('ตั้งความสว่างไม่สำเร็จ'));}</script></body></html>)rawliteral";
+const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Smart Clock Pro</title><style>body{background:#0a0c10;color:#f3f4f6;font-family:sans-serif;padding:15px;text-align:center;margin:0}.card{background:rgba(22,27,34,0.85);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;margin:10px auto;max-width:420px}h1{color:#3b82f6;font-size:20px;margin:0 0 4px 0}h3{color:#93c5fd;margin:0 0 10px 0;font-size:15px}input,select{width:100%;padding:10px;margin:5px 0;border-radius:8px;border:1px solid #374151;background:#1f2937;color:#fff;box-sizing:border-box;font-size:14px}button{width:100%;padding:10px;margin:5px 0;border-radius:8px;border:none;font-weight:700;cursor:pointer;font-size:14px}.btn-blue{background:#3b82f6;color:#fff}.row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,0.06)}.k{color:#9ca3af}.v{color:#f3f4f6;font-weight:700}.v.old{color:#f59e0b}.v.up{color:#10b981}.v.down{color:#ef4444}.btn-green{background:#10b981;color:#fff}.btn-yellow{background:#f59e0b;color:#000}.status{font-size:13px;padding:6px 10px;border-radius:6px;margin:4px 0}.ok{background:#065f46;color:#6ee7b7}.info{background:#1e3a5f;color:#93c5fd}.warn{background:#7c2d12;color:#fdba74;border:1px solid #ea580c}label{display:block;text-align:left;font-size:13px;color:#9ca3af;margin-top:8px}.btn-red{background:#dc2626;color:#fff}.hint{font-size:12px;color:#6b7280;text-align:left;margin:6px 0 0 0}.ver{font-size:11px;color:#4b5563;margin-top:2px}</style></head><body><div class="card"><h1>⏰ Smart Clock Pro</h1><p id="wifiStatus" class="status info">กำลังโหลด...</p><p id="ver" class="ver"></p></div><div id="passWarnCard" class="card" style="display:none"><p class="status warn">⚠️ ยังใช้รหัสผ่านเริ่มต้นอยู่ ใครที่อยู่ในวง Wi-Fi เดียวกันก็เข้ามาแก้ค่าหรือเขียนเฟิร์มแวร์ทับได้ กรุณาตั้งรหัสใหม่ที่การ์ดด้านล่าง</p></div><div class="card"><h3>📊 ข้อมูลสดบนจอ</h3><div class="row"><span class="k">อากาศ</span><span><span id="wxVal" class="v">-</span><span id="wxDot" class="dot none"></span></span></div><div class="row"><span class="k">ราคาทองคำ (บาท)</span><span><span id="goldVal" class="v">-</span><span id="goldDot" class="dot none"></span></span></div><p id="dataMeta" class="hint"></p><button id="refreshBtn" class="btn-green" onclick="doRefresh()">🔄 ดึงข้อมูลใหม่ตอนนี้</button><p class="hint">ปกติอากาศดึงใหม่ทุก 10 นาที ทองทุก 5 นาที (อัปเดตเรทค่าเงินบาททุก 1 ชม.) ถ้าดึงไม่สำเร็จจะลองใหม่ทุก 1 นาที และคงค่าเดิมไว้บนจอพร้อมจุดเหลืองเตือน</p></div><div class="card"><h3>📶 ตั้งค่า Wi-Fi</h3><button class="btn-green" onclick="scanWifi()">🔍 สแกนหา Wi-Fi</button><select id="wifi_list"><option value="">กดสแกนก่อน...</option></select><label>รหัสผ่าน Wi-Fi</label><input type="password" id="pass" placeholder="รหัสผ่าน"><button class="btn-blue" onclick="saveWifi()">💾 บันทึกและรีสตาร์ท</button></div><div class="card"><h3>🌤️ ตั้งค่าเมือง</h3><label>ชื่อเมือง (ภาษาอังกฤษ)</label><input type="text" id="city" placeholder="เช่น Bangkok"><button id="cityBtn" class="btn-blue" onclick="saveCity()">💾 บันทึกเมือง</button></div><div class="card"><h3>💡 ความสว่างหน้าจอ</h3><input type="range" id="brightness" min="5" max="100" value="80" oninput="document.getElementById('brightnessVal').innerText=this.value+'%'" onchange="saveBrightness(this.value)"><p class="hint">ระดับปัจจุบัน: <span id="brightnessVal">80%</span> — ตอนโชว์ QR เครื่องจะหรี่ลงเองชั่วคราวให้กล้องมือถือโฟกัสง่ายขึ้น แล้วคืนค่านี้ตอนกลับหน้านาฬิกา</p></div><div class="card"><h3>🔒 รหัสผ่านหน้าเว็บ</h3><label>ชื่อผู้ใช้</label><input type="text" id="web_user" placeholder="admin" autocomplete="username"><label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label><input type="password" id="web_pass" placeholder="รหัสผ่านใหม่" autocomplete="new-password"><label>ยืนยันรหัสผ่านใหม่</label><input type="password" id="web_pass2" placeholder="พิมพ์ซ้ำอีกครั้ง" autocomplete="new-password"><button class="btn-red" onclick="saveAuth()">🔐 บันทึกรหัสผ่าน</button><p class="hint">หลังบันทึก เบราว์เซอร์จะถามรหัสใหม่ในการเข้าครั้งถัดไป ถ้าลืมรหัสต้องล้าง EEPROM ด้วยการแฟลชผ่านสาย</p></div><div class="card"><h3>🚀 อัปเดต Firmware (OTA)</h3><form method="POST" action="/update_ota" enctype="multipart/form-data"><input type="file" name="update" accept=".bin"><button type="submit" class="btn-yellow">⚡ อัปโหลด .bin</button></form></div><script>window.onload=function(){fetch('/config').then(r=>r.json()).then(d=>{document.getElementById('city').value=d.city||'';document.getElementById('web_user').value=d.web_user||'admin';document.getElementById('ver').innerText='Firmware v'+(d.version||'-');if(typeof d.brightness!=='undefined'){document.getElementById('brightness').value=d.brightness;document.getElementById('brightnessVal').innerText=d.brightness+'%';}let ws=document.getElementById('wifiStatus');ws.innerText='เชื่อมต่อ Wi-Fi: '+(d.ssid||'-');ws.className='status ok';if(d.default_pass){document.getElementById('passWarnCard').style.display='block';}renderData(d);}).catch(()=>{document.getElementById('wifiStatus').innerText='ไม่สามารถโหลดข้อมูลได้';});};function scanWifi(){let sel=document.getElementById('wifi_list');sel.innerHTML='<option>กำลังสแกน...</option>';fetch('/scanwifi').then(r=>r.json()).then(data=>{sel.innerHTML='';if(!data.length){sel.innerHTML='<option>ไม่พบ Wi-Fi</option>';return;}data.sort((a,b)=>b.rssi-a.rssi);data.forEach(item=>{let o=document.createElement('option');o.value=item.ssid;o.innerText=item.ssid+'  ('+item.rssi+' dBm)';sel.appendChild(o);});}).catch(()=>alert('สแกนไม่สำเร็จ'));}function saveAuth(){let u=document.getElementById('web_user').value.trim(),p=document.getElementById('web_pass').value,p2=document.getElementById('web_pass2').value;if(!u){alert('กรุณากรอกชื่อผู้ใช้');return;}if(p.length<8){alert('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร');return;}if(p!==p2){alert('รหัสผ่านสองช่องไม่ตรงกัน');return;}fetch('/api/set?key=web_user&value='+encodeURIComponent(u)).then(r=>{if(!r.ok)throw new Error('ตั้งชื่อผู้ใช้ไม่สำเร็จ');return fetch('/api/set?key=web_pass&value='+encodeURIComponent(p));}).then(r=>{if(!r.ok)throw new Error('ตั้งรหัสผ่านไม่สำเร็จ');alert('บันทึกรหัสผ่านใหม่แล้ว ครั้งถัดไปที่เปิดหน้านี้เบราว์เซอร์จะถามรหัสใหม่');document.getElementById('web_pass').value='';document.getElementById('web_pass2').value='';document.getElementById('passWarnCard').style.display='none';}).catch(e=>alert(e.message));}function renderData(d){let w=d.weather||{},wEl=document.getElementById('wxVal'),wDot=document.getElementById('wxDot');if(w.valid){wEl.innerText=w.temp_c+'°C  '+(w.desc||'');wDot.className=w.stale?'dot stale':'dot fresh';wDot.title=w.stale?'ข้อมูลเก่า ดึงใหม่ไม่สำเร็จ':'ข้อมูลสด';}else{wEl.innerText='ยังไม่มีข้อมูล';wDot.className='dot none';wDot.title='ยังดึงไม่สำเร็จเลย';}let g=d.gold||{},gEl=document.getElementById('goldVal'),gDot=document.getElementById('goldDot');if(g.valid){let p=Number(g.price).toLocaleString('th-TH');let sub='';if(g.paxg&&g.usd_thb)sub=' <span style="font-size:11px;font-weight:normal;color:#9ca3af">(PAXG $'+g.paxg+' • '+g.usd_thb+' ฿/$)</span>';gEl.innerHTML=p+' บาท'+sub;if(g.prev>0&&g.price>g.prev)gEl.style.color='#10b981';else if(g.prev>0&&g.price<g.prev)gEl.style.color='#ef4444';else gEl.style.color='#f3f4f6';gDot.className=g.stale?'dot stale':'dot fresh';gDot.title=g.stale?'ข้อมูลเก่า ดึงใหม่ไม่สำเร็จ':'ข้อมูลสด';}else{gEl.innerText='ยังไม่มีข้อมูล';gEl.style.color='#9ca3af';gDot.className='dot none';gDot.title='ยังดึงไม่สำเร็จเลย';}let meta=[];if(d.lat||d.lon)meta.push('พิกัด '+d.lat+', '+d.lon);if(d.heap)meta.push('heap '+d.heap+' bytes');document.getElementById('dataMeta').innerText=meta.join('  •  ');}function reloadData(){return fetch('/config').then(r=>r.json()).then(renderData);}function doRefresh(){let btn=document.getElementById('refreshBtn');btn.disabled=true;btn.innerText='⏳ กำลังดึง...';fetch('/refresh').then(r=>r.json()).then(()=>reloadData()).catch(()=>alert('ดึงข้อมูลไม่สำเร็จ')).finally(()=>{btn.disabled=false;btn.innerText='🔄 ดึงข้อมูลใหม่ตอนนี้';});}function saveCity(){let c=document.getElementById('city').value.trim();if(!c){alert('กรุณากรอกชื่อเมือง');return;}let btn=document.getElementById('cityBtn');btn.disabled=true;btn.innerText='⏳ กำลังค้นหาเมือง...';fetch('/api/set?key=city&value='+encodeURIComponent(c)).then(r=>r.text().then(t=>({ok:r.ok,text:t}))).then(res=>{if(!res.ok)throw new Error(res.text);if(res.text!=='OK')alert('บันทึกเมืองแล้ว แต่ยังดึงอากาศไม่ได้: '+res.text);else alert('บันทึกเมือง "'+c+'" แล้ว');return reloadData();}).catch(e=>alert('บันทึกเมืองไม่สำเร็จ: '+e.message)).finally(()=>{btn.disabled=false;btn.innerText='💾 บันทึกเมือง';});}function saveWifi(){let s=document.getElementById('wifi_list').value,p=document.getElementById('pass').value;if(!s){alert('กรุณาเลือก Wi-Fi ก่อน');return;}fetch('/api/set?key=wifi_ssid&value='+encodeURIComponent(s)).then(()=>fetch('/api/set?key=wifi_pass&value='+encodeURIComponent(p))).then(()=>{alert('บันทึกข้อมูล Wi-Fi ลง EEPROM เรียบร้อย! เครื่องกำลังรีบูตเพื่อเชื่อมต่อ...');setTimeout(()=>fetch('/restart'),500);});}function saveBrightness(v){fetch('/api/set?key=lcd_brightness&value='+encodeURIComponent(v)).catch(()=>alert('ตั้งความสว่างไม่สำเร็จ'));}</script></body></html>)rawliteral";
 
 // Binary search for glyph offset in new font format
 bool findGlyphOffset(uint32_t codepoint, uint32_t &offset) {
@@ -632,13 +639,24 @@ void drawWeatherArea() {
     drawStaleDot(230, 76, weather.stale);
 }
 
-// กล่องราคาทอง PAXGUSDT (y 155-235)
+// จัดรูปแบบตัวเลขจำนวนเต็มพร้อมคอมม่าคั่นหลักพัน เช่น 42,650
+void formatPriceWithCommas(unsigned long val, char* out, size_t outSize) {
+    if (val >= 1000000) {
+        snprintf(out, outSize, "%lu,%03lu,%03lu", val / 1000000, (val / 1000) % 1000, val % 1000);
+    } else if (val >= 1000) {
+        snprintf(out, outSize, "%lu,%03lu", val / 1000, val % 1000);
+    } else {
+        snprintf(out, outSize, "%lu", val);
+    }
+}
+
+// กล่องราคาทองคำแท่งไทย 96.5% (y 155-235)
 void drawGoldArea() {
     if (displayMode != MODE_CLOCK) return;
 
     tft.fillRect(0, 155, 240, 80, ST77XX_BLACK);
     tft.drawRect(10, 160, 220, 70, ST77XX_ORANGE);
-    drawThaiString(18, 165, "ราคาทองคำ PAXGUSDT", ST77XX_ORANGE, ST77XX_BLACK);
+    drawThaiString(18, 165, "ราคาทองคำ (บาท)", ST77XX_ORANGE, ST77XX_BLACK);
 
     if (gold.valid) {
         // สีบอกทิศทางเทียบราคาครั้งก่อน ขึ้นเขียว ลงแดง เท่าเดิมหรือครั้งแรกเป็นขาว
@@ -648,7 +666,7 @@ void drawGoldArea() {
             else if (gold.price < gold.prevPrice) color = ST77XX_RED;
         }
         char priceStr[16];
-        snprintf(priceStr, sizeof(priceStr), "$%.2f", gold.price);
+        formatPriceWithCommas((unsigned long)round(gold.price), priceStr, sizeof(priceStr));
         tft.setTextColor(color, ST77XX_BLACK);
         tft.setTextSize(3);
         tft.setCursor(20, 192);
@@ -1548,6 +1566,71 @@ bool fetchWeather() {
     return true;
 }
 
+bool fetchExchangeRate() {
+    if (WiFi.status() != WL_CONNECTED) return false;
+
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setBufferSizes(1024, 512);
+
+    HTTPClient http;
+    http.setTimeout(8000);
+    http.useHTTP10(true);
+    http.setUserAgent(F("Mozilla/5.0 (SmartClock-ESP8266)"));
+
+    if (!http.begin(client, RATE_URL)) {
+        appLog(F("Rate: http.begin failed"));
+        return false;
+    }
+
+    int code = http.GET();
+    if (code != HTTP_CODE_OK) {
+        char errBuf[128] = "";
+        client.getLastSSLError(errBuf, sizeof(errBuf));
+        appLog(String(F("Rate failed: HTTP ")) + String(code) + String(F(" (")) + http.errorToString(code) + String(F("), SSL: ")) + String(errBuf));
+        http.end();
+        return false;
+    }
+
+    String payload = http.getString();
+    http.end();
+
+    if (payload.length() == 0) {
+        appLog(F("Rate: empty payload"));
+        return false;
+    }
+
+    StaticJsonDocument<256> doc;
+    DeserializationError err = deserializeJson(doc, payload);
+    if (err) {
+        appLog(String(F("Rate JSON error: ")) + err.c_str());
+        return false;
+    }
+
+    if (!doc.containsKey("price")) {
+        appLog(F("Rate: unexpected payload"));
+        return false;
+    }
+
+    float rate = 0.0f;
+    if (doc["price"].is<float>()) {
+        rate = doc["price"].as<float>();
+    } else if (doc["price"].is<const char*>()) {
+        rate = atof(doc["price"].as<const char*>());
+    } else {
+        rate = doc["price"] | 0.0f;
+    }
+
+    if (rate < 15.0f || rate > 60.0f) {
+        appLog(F("Rate: value out of normal range"));
+        return false;
+    }
+
+    gold.usdThb = rate;
+    appLog(String(F("USDT/THB Rate (Binance TH): ")) + String(gold.usdThb, 2));
+    return true;
+}
+
 bool fetchGold() {
     if (WiFi.status() != WL_CONNECTED) return false;
 
@@ -1595,26 +1678,30 @@ bool fetchGold() {
         return false;
     }
 
-    float newPrice = 0.0f;
+    float newPaxg = 0.0f;
     if (doc["price"].is<float>()) {
-        newPrice = doc["price"].as<float>();
+        newPaxg = doc["price"].as<float>();
     } else if (doc["price"].is<const char*>()) {
-        newPrice = atof(doc["price"].as<const char*>());
+        newPaxg = atof(doc["price"].as<const char*>());
     } else {
-        newPrice = doc["price"] | 0.0f;
+        newPaxg = doc["price"] | 0.0f;
     }
 
-    if (newPrice <= 0.0f) {
+    if (newPaxg <= 0.0f) {
         appLog(F("Gold: price out of range"));
         return false;
     }
 
-    gold.prevPrice = gold.valid ? gold.price : newPrice;
-    gold.price = newPrice;
+    // คำนวณราคาทองคำแท่งไทย 96.5% (บาท) จาก PAXGUSDT * USDTHB * GOLD_CONVERSION_FACTOR (0.4753)
+    float newThaiPrice = newPaxg * gold.usdThb * GOLD_CONVERSION_FACTOR;
+
+    gold.prevPrice = gold.valid ? gold.price : newThaiPrice;
+    gold.price = newThaiPrice;
+    gold.paxgPrice = newPaxg;
     gold.valid = true;
     gold.stale = false;
     gold.lastOk = millis();
-    appLog(String(F("Gold: $")) + String(gold.price, 2) + String(F(" (prev $")) + String(gold.prevPrice, 2) + F(")"));
+    appLog(String(F("Gold: ")) + String((unsigned long)round(gold.price)) + String(F(" THB (PAXG $")) + String(gold.paxgPrice, 2) + String(F(" @ ")) + String(gold.usdThb, 2) + F(" THB/$)"));
     if (displayMode == MODE_CLOCK) drawGoldArea();
     return true;
 }
@@ -1643,8 +1730,8 @@ void handleScanWifi() {
 }
 
 void handleConfig() {
-    // 768 เพราะเพิ่ม nested object weather/gold เข้ามา 512 เดิมจะไม่พอ
-    StaticJsonDocument<768> doc;
+    // 896 เพราะเพิ่ม nested object weather/gold พร้อม paxg และ usd_thb เข้ามา
+    StaticJsonDocument<896> doc;
     doc["ssid"] = sysConfig.ssid;
     doc["city"] = sysConfig.city;
     doc["brightness"] = sysConfig.brightness;
@@ -1669,8 +1756,10 @@ void handleConfig() {
     g["valid"] = gold.valid;
     g["stale"] = gold.stale;
     if (gold.valid) {
-        g["price"] = serialized(String(gold.price, 2));
-        g["prev"] = serialized(String(gold.prevPrice, 2));
+        g["price"] = serialized(String((unsigned long)round(gold.price)));
+        g["prev"] = serialized(String((unsigned long)round(gold.prevPrice)));
+        g["paxg"] = serialized(String(gold.paxgPrice, 2));
+        g["usd_thb"] = serialized(String(gold.usdThb, 2));
     }
 
     doc["lat"] = serialized(String(sysConfig.lat, 4));
@@ -1993,7 +2082,7 @@ void renderClockBand(GFXcanvas16 &canvas, int16_t bandY, int16_t bandH) {
     // 4. Gold Area (y: 155..235)
     if (bandY + bandH > 155 && bandY < 235) {
         canvas.drawRect(10, 160 - bandY, 220, 70, ST77XX_ORANGE);
-        drawThaiStringScaled(18, 165 - bandY, "ราคาทองคำ PAXGUSDT", ST77XX_ORANGE, 1, canvas);
+        drawThaiStringScaled(18, 165 - bandY, "ราคาทองคำ (บาท)", ST77XX_ORANGE, 1, canvas);
         if (gold.valid) {
             uint16_t color = ST77XX_WHITE;
             if (gold.prevPrice > 0.0f) {
@@ -2001,7 +2090,7 @@ void renderClockBand(GFXcanvas16 &canvas, int16_t bandY, int16_t bandH) {
                 else if (gold.price < gold.prevPrice) color = ST77XX_RED;
             }
             char priceStr[16];
-            snprintf(priceStr, sizeof(priceStr), "$%.2f", gold.price);
+            formatPriceWithCommas((unsigned long)round(gold.price), priceStr, sizeof(priceStr));
             canvas.setTextColor(color);
             canvas.setTextSize(3);
             canvas.setCursor(20, 192 - bandY);
@@ -2534,6 +2623,7 @@ void setupWebServer() {
         // ใช้กติกาเดียวกับ scheduler: ดึงไม่สำเร็จแต่เคยมีข้อมูล = ของเก่า ต้องขึ้นจุดเหลือง
         if (!fetchWeather() && weather.valid) weather.stale = true;
         drawWeatherArea();
+        fetchExchangeRate();
         if (!fetchGold() && gold.valid) gold.stale = true;
         drawGoldArea();
         handleConfig(); // ตอบค่าล่าสุดกลับไปเลย หน้าเว็บไม่ต้องยิง /config ตาม
@@ -2651,8 +2741,16 @@ void maintainWifi() {
 void updateDataIfDue() {
     if (WiFi.status() != WL_CONNECTED) return;
 
+    static unsigned long lastRateTry = 0;
     static unsigned long lastWeatherTry = 0;
     static unsigned long lastGoldTry = 0;
+
+    // ดึงเรทค่าเงินบาทก่อน (ทุก 1 ชั่วโมง หรือรอบแรก)
+    if (lastRateTry == 0 || millis() - lastRateTry >= RATE_INTERVAL_MS) {
+        lastRateTry = millis();
+        fetchExchangeRate();
+        return; // คืน CPU ให้ loop ก่อน ไม่ดึงสองอย่างติดกันในรอบเดียว
+    }
 
     // ดึงไม่สำเร็จให้ลองใหม่เร็วขึ้น สำเร็จแล้วค่อยรอรอบยาว
     unsigned long weatherGap = weather.valid && !weather.stale

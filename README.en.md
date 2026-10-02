@@ -8,7 +8,7 @@ A native C++ firmware project for the **GeekMagic SmallTV** device (ESP8266 ESP-
 - 🇹🇭 **Full Thai font rendering system (178 glyphs):** supports tone marks and upper/lower vowels (combining marks) correctly stacked over consonants, renderable at multiple sizes (Scale 1x-3x depending on widget type)
 - 📶 **Smart Wi-Fi Manager (EEPROM):** scans for Wi-Fi and configures via a web page; the board permanently remembers settings in EEPROM (auto-disables AP Mode once connected)
 - 🕒 **NTP Time Sync:** Thai time (UTC+7) stays rock steady, with large clear digits
-- 🥇 **XAU/USD Gold Widget:** fetches gold price from a real API every 5 minutes; green when higher than the previous round, red when lower
+- 🥇 **Thai Gold Bar Widget (Baht):** fetches PAXGUSDT from Binance and USD/THB exchange rate automatically, converting to 96.5% Thai gold bar price (Baht) every 5 minutes; green when higher than the previous round, red when lower
 - 🌤️ **Weather from a real API:** temperature and weather conditions in Thai from open-meteo every 10 minutes (automatically converts city name to coordinates, with lat/lon cached in EEPROM)
 - 📶 **Wi-Fi Auto-Reconnect:** `loop()` watches connection status every 2 seconds, retries every 15 seconds, and opens a fallback AP to let you fix settings if disconnected for more than 2 minutes
 - 📊 **Mini Dashboard from JSON:** push `POST /api/draw` and the device draws the entire screen itself. Supports candlestick/column/bar/line/donut-pie charts, KPIs, gauges, Thai text, and **QR code (v3.5.0)** — everything autoscales automatically, without writing a single byte to flash. Switch back to the clock screen with `/api/mode`
@@ -81,7 +81,12 @@ Since v3.1.0 the values on screen are no longer hardcoded. Both are fetched from
 |---|---|---|---|
 | Coordinates from city name | `geocoding-api.open-meteo.com` | HTTP | Once, then cached in EEPROM |
 | Temperature + weather | `api.open-meteo.com` | HTTP | Every 10 minutes |
-| Gold price XAU/USD | `api.gold-api.com` | HTTPS | Every 5 minutes |
+| Gold price PAXGUSDT | `api.binance.com` | HTTPS | Every 5 minutes |
+| USDT/THB exchange rate | `api.binance.th` | HTTPS | Every 1 hour |
+
+**Thai Gold Bar Price Formula:** Converts PAXGUSDT (spot gold in USD) and USDT/THB exchange rate to 96.5% Thai gold bar price (Baht):
+$$\text{Thai Gold Price (Baht)} = \text{PAXGUSDT} \times \text{USDTTHB} \times 0.4753$$
+*(Constant 0.4753 derived from: $\frac{15.244\text{ g}}{31.1035\text{ g}} \times \frac{0.965}{0.995} \approx 0.4753$)*
 
 **Converting city name to coordinates:** enter a city name in the **🏙️ City** card on the web page. The device geocodes it once and stores the lat/lon in EEPROM; subsequent rounds hit the weather API directly, skipping the geocoding step.
 
